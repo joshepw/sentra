@@ -11,11 +11,22 @@ export const threatCards = [
   { num: "10", title: "Poca tecnología", desc: "Infraestructura urbana con escasa inteligencia y sensores." },
 ];
 
-export const tabsData = [
+export const tabsData: {
+  title: string;
+  tag: string;
+  cam: string;
+  desc: string;
+  bullets: string[];
+  image?: string;
+  /** Tailwind classes for the detection overlay box */
+  boxClass?: string;
+}[] = [
   {
     title: "Detección de accidentes",
     tag: "colisión · 98%",
     cam: "CAM-07 · CIRCUNVALACIÓN",
+    image: "/assets/cam-colision.jpg",
+    boxClass: "left-[34%] top-[38%] h-[40%] w-[36%] sm:left-[36%] sm:top-[36%] sm:h-[42%] sm:w-[34%]",
     desc: "Visión por computadora identifica colisiones y trayectorias de riesgo en tiempo real y dispara la alerta antes de que alguien levante el teléfono.",
     bullets: [
       "Detección de colisiones y trayectorias en segundos",
@@ -27,6 +38,8 @@ export const tabsData = [
     title: "Telemetría de tráfico",
     tag: "vehículo · 98%",
     cam: "CAM-03 · BLVD DEL NORTE",
+    image: "/assets/cam-trafico.jpg",
+    boxClass: "left-[45%] top-[60%] h-[34%] w-[26%] sm:left-[47%] sm:top-[58%] sm:h-[36%] sm:w-[24%]",
     desc: "Convierte cada cámara en un sensor de flujo: cuántos vehículos pasan, a qué hora y dónde se forma la congestión.",
     bullets: [
       "Vehículos por hora y por carril",
@@ -38,6 +51,7 @@ export const tabsData = [
     title: "Infracciones",
     tag: "infracción · 95%",
     cam: "CAM-11 · BLVD DEL SUR",
+    image: "/assets/cam-accidente.jpg",
     desc: "Semáforo en rojo, exceso de velocidad y maniobras indebidas detectadas y documentadas automáticamente.",
     bullets: [
       "Cruce de semáforo en rojo",
@@ -49,6 +63,8 @@ export const tabsData = [
     title: "Alertas preventivas",
     tag: "evento · 97%",
     cam: "CAM-02 · ANILLO PERIFÉRICO",
+    image: "/assets/cam-alerta.jpg",
+    boxClass: "left-[23%] top-[32%] h-[44%] w-[30%] sm:left-[25%] sm:top-[30%] sm:h-[46%] sm:w-[28%]",
     desc: "Ante un evento, las entidades correctas reciben la notificación al instante: tránsito, policía municipal o bomberos.",
     bullets: [
       "Notificación automática a cada entidad",
@@ -60,6 +76,8 @@ export const tabsData = [
     title: "Conteo de biodiversidad",
     tag: "venado · 96%",
     cam: "CÁMARA SOLAR · MERENDÓN",
+    image: "/assets/cam-biodiversidad.jpg",
+    boxClass: "left-[36%] top-[18%] h-[58%] w-[28%] sm:left-[38%] sm:top-[16%] sm:h-[60%] sm:w-[26%]",
     desc: "Cámaras solares con IA identifican y cuentan la fauna automáticamente, construyendo un inventario digital vivo de las especies del territorio.",
     bullets: [
       "Identificación automática por especie",
@@ -71,6 +89,8 @@ export const tabsData = [
     title: "Clima y predicción",
     tag: "lluvia · +6 h",
     cam: "ESTACIÓN · CUENCA",
+    image: "/assets/cam-clima.jpg",
+    boxClass: "left-[34%] top-[28%] h-[42%] w-[32%] sm:left-[36%] sm:top-[26%] sm:h-[44%] sm:w-[30%]",
     desc: "Estaciones ambientales leen lluvia, temperatura, viento y radiación minuto a minuto; la IA proyecta el clima con horas de anticipación.",
     bullets: [
       "Variables meteorológicas en tiempo real",
@@ -82,6 +102,8 @@ export const tabsData = [
     title: "Alertas de inundación",
     tag: "nivel · crítico",
     cam: "SENSOR · RÍO / VADO",
+    image: "/assets/cam-inundacion.jpg",
+    boxClass: "left-[28%] top-[30%] h-[48%] w-[44%] sm:left-[30%] sm:top-[28%] sm:h-[50%] sm:w-[42%]",
     desc: "Sensores en ríos, quebradas y vados detectan el nivel del agua, la velocidad de la crecida y el riesgo de desbordamiento — con lógica de semáforo.",
     bullets: [
       "Nivel y velocidad de crecida en vivo",
@@ -91,8 +113,10 @@ export const tabsData = [
   },
   {
     title: "Historial & metadata",
-    tag: "evento · 96%",
+    tag: "persona · 96%",
     cam: "ARCHIVO · INDEXADO",
+    image: "/assets/cam-historial.jpg",
+    boxClass: "left-[53%] top-[44%] h-[48%] w-[14%] sm:left-[54%] sm:top-[42%] sm:h-[50%] sm:w-[13%]",
     desc: "Todo evento queda indexado. Encuentra qué pasó por hora y lugar sin revisar horas de video fotograma por fotograma.",
     bullets: [
       "Búsqueda por hora, lugar y tipo de evento",

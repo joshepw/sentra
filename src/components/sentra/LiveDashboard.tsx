@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { useEffect, useState } from "react";
 import { feeds } from "@/lib/sentra-data";
 import { fmt, hhmmss, sevColor } from "@/lib/sentra-utils";
@@ -88,31 +89,85 @@ export function LiveDashboard() {
                   <span className="text-accent">1</span> ACTIVA
                 </div>
               </div>
-              <div className="relative overflow-hidden rounded-xl border border-[rgba(141,168,154,0.16)]">
-                <svg width="100%" height="320" viewBox="0 0 560 320" className="block">
-                  <rect width="560" height="320" fill="#081411" />
-                  <g transform="rotate(-6 280 160)" fill="none" stroke="#1f8a5b">
-                    <line x1="-60" y1="72" x2="640" y2="72" strokeOpacity="0.26" strokeWidth="2.4" />
-                    <line x1="-60" y1="250" x2="640" y2="250" strokeOpacity="0.18" strokeWidth="2.4" />
-                    <line x1="150" y1="-40" x2="150" y2="380" strokeOpacity="0.2" strokeWidth="2.4" />
-                    <line x1="430" y1="-40" x2="430" y2="380" strokeOpacity="0.16" strokeWidth="2.4" />
-                  </g>
-                  <g transform="rotate(-6 280 160)">
-                    <line x1="82" y1="178" x2="484" y2="178" stroke="#3dd68c" strokeOpacity="0.55" strokeWidth="1.6" strokeDasharray="2 7" />
-                    {[82, 183, 383, 484].map((x) => (
-                      <g key={x} transform={`translate(${x} 178)`}>
-                        <circle r="6.5" fill="#0b1d16" stroke="#3dd68c" strokeWidth="2" />
-                        <circle r="2.6" fill="#3dd68c" />
-                      </g>
-                    ))}
-                    <g transform="translate(283 178)">
-                      <circle r="30" fill="none" stroke="#3dd68c" strokeWidth="1.6" className="origin-center animate-sn-ripout" style={{ transformBox: "fill-box" }} />
-                      <circle r="30" fill="none" stroke="#3dd68c" strokeWidth="1.6" className="origin-center animate-sn-ripout [animation-delay:1.3s]" style={{ transformBox: "fill-box" }} />
-                      <circle r="13" fill="#3dd68c" fillOpacity="0.16" stroke="#3dd68c" strokeWidth="1.6" />
-                      <circle r="5.5" fill="#3dd68c" />
-                    </g>
-                  </g>
-                </svg>
+              <div className="relative overflow-hidden rounded-xl border border-[rgba(141,168,154,0.16)] aspect-[560/320] bg-bg">
+                <Image
+                  src="/assets/map-sps.jpg"
+                  alt="Mapa satelital del corredor 1ª Calle · Blvd Morazán"
+                  fill
+                  className="object-cover object-center"
+                  sizes="(max-width: 1024px) 100vw, 60vw"
+                  priority={false}
+                />
+                <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-[rgba(8,20,17,0.35)] via-transparent to-[rgba(8,20,17,0.15)]" />
+
+                {/* Corridor line + markers along the boulevard (tilt: high-left → low-right) */}
+                {(() => {
+                  const markers = [
+                    { left: 14, top: 43, tone: "normal" as const },
+                    { left: 32, top: 45.5, tone: "congestion" as const },
+                    { left: 48, top: 51, tone: "active" as const },
+                    { left: 66, top: 53.5, tone: "normal" as const },
+                    { left: 82, top: 56, tone: "incident" as const },
+                  ];
+                  const linePoints = markers.map((m) => `${m.left},${m.top}`).join(" ");
+
+                  return (
+                    <>
+                      <svg
+                        className="pointer-events-none absolute inset-0 h-full w-full"
+                        viewBox="0 0 100 100"
+                        preserveAspectRatio="none"
+                        aria-hidden
+                      >
+                        <polyline
+                          points={linePoints}
+                          fill="none"
+                          stroke="#3dd68c"
+                          strokeOpacity="0.85"
+                          strokeWidth="1.6"
+                          strokeDasharray="2 7"
+                          strokeLinecap="round"
+                          vectorEffect="non-scaling-stroke"
+                        />
+                      </svg>
+
+                      {markers.map((m) => (
+                        <div
+                          key={`${m.left}-${m.top}`}
+                          className="absolute -translate-x-1/2 -translate-y-1/2"
+                          style={{ left: `${m.left}%`, top: `${m.top}%` }}
+                        >
+                          {m.tone === "active" && (
+                            <>
+                              <span className="absolute left-1/2 top-1/2 size-14 -translate-x-1/2 -translate-y-1/2 rounded-full border border-accent opacity-80 animate-sn-ripout" />
+                              <span className="absolute left-1/2 top-1/2 size-14 -translate-x-1/2 -translate-y-1/2 rounded-full border border-accent opacity-80 animate-sn-ripout [animation-delay:1.3s]" />
+                            </>
+                          )}
+                          <span
+                            className={`relative flex size-[13px] items-center justify-center rounded-full border-2 bg-bg-panel ${
+                              m.tone === "incident"
+                                ? "border-[#e0655a]"
+                                : m.tone === "congestion"
+                                  ? "border-[#e6b24d]"
+                                  : "border-accent"
+                            }`}
+                          >
+                            <span
+                              className={`size-[5px] rounded-full ${
+                                m.tone === "incident"
+                                  ? "bg-[#e0655a]"
+                                  : m.tone === "congestion"
+                                    ? "bg-[#e6b24d]"
+                                    : "bg-accent"
+                              }`}
+                            />
+                          </span>
+                        </div>
+                      ))}
+                    </>
+                  );
+                })()}
+
                 <div className="absolute right-4 top-4 flex items-center gap-[7px] rounded-full border border-[rgba(61,214,140,0.28)] bg-[rgba(8,20,17,0.7)] px-[11px] py-[7px] font-mono text-[9px] font-medium tracking-[0.14em] text-accent">
                   <span className="block size-1.5 animate-sn-pulse rounded-full bg-accent" />
                   SATÉLITE

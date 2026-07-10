@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { useState } from "react";
 import { tabsData } from "@/lib/sentra-data";
 import { pad } from "@/lib/sentra-utils";
@@ -8,67 +9,77 @@ import { Container, Eyebrow, SectionIntro, SectionTitle } from "./ui";
 function CameraPreview({
   cam,
   tag,
+  image,
+  boxClass,
 }: {
   cam: string;
   tag: string;
+  image?: string;
+  boxClass?: string;
 }) {
+  const detectionBox =
+    boxClass ??
+    (image
+      ? "left-[31%] top-[26%] h-[44%] w-[30%] sm:left-[33%] sm:top-[24%] sm:h-[46%] sm:w-[28%]"
+      : "left-[29.5%] top-[36.5%] h-[35%] w-[30%]");
+
   return (
-    <div className="w-full overflow-hidden rounded-[14px] border border-[rgba(141,168,154,0.16)] bg-bg lg:flex-1">
+    <div className="w-full overflow-hidden rounded-[14px] border border-[rgba(141,168,154,0.16)] bg-bg lg:w-[min(100%,420px)] lg:flex-none xl:w-[460px]">
       <div className="flex items-center justify-between border-b border-[rgba(141,168,154,0.16)] px-4 py-3 font-mono text-[10px] font-medium tracking-[0.14em] text-text-faint">
         <span className="truncate pr-2">{cam}</span>
         <span className="shrink-0 text-accent">● REC</span>
       </div>
-      <div className="relative h-52 sm:h-60">
-        <svg
-          width="100%"
-          height="100%"
-          viewBox="0 0 400 240"
-          preserveAspectRatio="none"
-          className="absolute inset-0 block"
-        >
-          <defs>
-            <pattern
-              id="stripe"
-              width="14"
-              height="14"
-              patternUnits="userSpaceOnUse"
-              patternTransform="rotate(45)"
-            >
-              <rect width="14" height="14" fill="#0b1d16" />
-              <rect width="7" height="14" fill="#0e2a1d" />
-            </pattern>
-          </defs>
-          <rect width="400" height="240" fill="url(#stripe)" />
-        </svg>
+      <div className="relative aspect-[16/10] sm:aspect-[16/9]">
+        {image ? (
+          <Image
+            src={image}
+            alt={`Vista de cámara: ${cam}`}
+            fill
+            className="object-cover object-center"
+            sizes="(max-width: 1024px) 100vw, 460px"
+            priority={false}
+          />
+        ) : (
+          <svg
+            width="100%"
+            height="100%"
+            viewBox="0 0 400 240"
+            preserveAspectRatio="none"
+            className="absolute inset-0 block"
+            aria-hidden
+          >
+            <defs>
+              <pattern
+                id="stripe"
+                width="14"
+                height="14"
+                patternUnits="userSpaceOnUse"
+                patternTransform="rotate(45)"
+              >
+                <rect width="14" height="14" fill="#0b1d16" />
+                <rect width="7" height="14" fill="#0e2a1d" />
+              </pattern>
+            </defs>
+            <rect width="400" height="240" fill="url(#stripe)" />
+          </svg>
+        )}
+
+        <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-[rgba(8,20,17,0.55)] via-transparent to-[rgba(8,20,17,0.2)]" />
         <div className="absolute inset-x-0 top-0 h-0.5 animate-sn-scan bg-gradient-to-r from-transparent via-accent to-transparent" />
-        <svg
-          width="100%"
-          height="100%"
-          viewBox="0 0 400 240"
-          preserveAspectRatio="none"
-          className="absolute inset-0"
-        >
-          <rect
-            x="118"
-            y="88"
-            width="120"
-            height="84"
-            fill="none"
-            stroke="#3dd68c"
-            strokeWidth="2"
-          />
-          <path
-            d="M118 104V88h16M222 88h16v16M238 156v16h-16M134 172h-16v-16"
-            fill="none"
-            stroke="#3dd68c"
-            strokeWidth="3"
-          />
-        </svg>
-        <div className="absolute left-[118px] top-16 rounded bg-accent px-2 py-1 font-mono text-[10px] font-semibold tracking-[0.08em] text-bg">
-          {tag}
+
+        <div className={`absolute ${detectionBox}`}>
+          <div className="absolute inset-0 border-2 border-accent" />
+          <span className="absolute -left-px -top-px size-3.5 border-t-[3px] border-l-[3px] border-accent" />
+          <span className="absolute -right-px -top-px size-3.5 border-t-[3px] border-r-[3px] border-accent" />
+          <span className="absolute -bottom-px -left-px size-3.5 border-b-[3px] border-l-[3px] border-accent" />
+          <span className="absolute -bottom-px -right-px size-3.5 border-r-[3px] border-b-[3px] border-accent" />
+          <div className="absolute -top-7 left-0 rounded bg-accent px-2 py-1 font-mono text-[10px] font-semibold tracking-[0.08em] text-bg whitespace-nowrap">
+            {tag}
+          </div>
         </div>
-        <div className="absolute bottom-3 left-3.5 font-mono text-[10px] font-medium tracking-[0.06em] text-text-muted">
-          FRAME 380px · INFERENCIA EN BORDE
+
+        <div className="absolute bottom-3 left-3.5 font-mono text-[10px] font-medium tracking-[0.06em] text-text-muted drop-shadow">
+          DETECCIÓN EN TIEMPO REAL
         </div>
       </div>
     </div>
@@ -112,7 +123,7 @@ export function Plataforma() {
           ))}
         </div>
 
-        <div className="flex flex-col gap-5 rounded-[18px] border border-[rgba(141,168,154,0.16)] bg-bg-card p-5 sm:gap-6 sm:p-8 lg:flex-row lg:p-11">
+        <div className="flex flex-col gap-5 rounded-[18px] border border-[rgba(141,168,154,0.16)] bg-bg-card p-5 sm:gap-6 sm:p-8 lg:flex-row lg:items-start lg:p-11">
           <div className="min-w-0 flex-1">
             <div className="mb-4 font-mono text-xs font-semibold tracking-[0.2em] text-accent sm:mb-[18px]">
               {pad(tab + 1)} — CAPACIDAD
@@ -136,7 +147,12 @@ export function Plataforma() {
             </div>
           </div>
 
-          <CameraPreview cam={active.cam} tag={active.tag} />
+          <CameraPreview
+            cam={active.cam}
+            tag={active.tag}
+            image={active.image}
+            boxClass={active.boxClass}
+          />
         </div>
       </Container>
     </section>

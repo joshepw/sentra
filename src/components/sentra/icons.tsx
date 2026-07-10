@@ -217,13 +217,22 @@ const wizServiceIcons: Record<string, ReactNode> = {
     </>
   ),
   "Telemetría de tráfico": (
-    <polyline points="M3 12h4l3 8 4-16 3 8h4" />
+    <>
+      <path d="M3 20h18" />
+      <rect x="5" y="11" width="3.5" height="9" rx="0.5" />
+      <rect x="10.25" y="5" width="3.5" height="15" rx="0.5" />
+      <rect x="15.5" y="9" width="3.5" height="11" rx="0.5" />
+    </>
   ),
   Infracciones: (
     <>
-      <rect x="4" y="4" width="16" height="13" />
-      <path d="M4 20h16" />
-      <path d="M9 9l6 4-6 4z" />
+      {/* Traffic light — red signal for violations */}
+      <rect x="8" y="2" width="8" height="16" rx="3" />
+      <circle cx="12" cy="6.5" r="1.6" />
+      <circle cx="12" cy="11" r="1.6" />
+      <circle cx="12" cy="15.5" r="1.6" />
+      <path d="M12 18v4" />
+      <path d="M9 22h6" />
     </>
   ),
   "Alertas preventivas": (
@@ -234,7 +243,15 @@ const wizServiceIcons: Record<string, ReactNode> = {
     </>
   ),
   "Conteo de biodiversidad": (
-    <path d="M12 22c3.3 0 6-2.6 6-5.9 0-2-1-3.8-2.3-5.2-.3 1.1-1.1 2-2.2 2.3.6-2.3-.4-4.8-2.5-6.7-.3 1.8-1.2 2.8-2.6 4C8.6 8.4 7 10.6 7 13c0 3.6 2.2 9 5 9z" />
+    <>
+      {/* Detection reticle / crosshair */}
+      <circle cx="12" cy="12" r="8" />
+      <circle cx="12" cy="12" r="3.2" />
+      <path d="M12 2v3.5" />
+      <path d="M12 18.5V22" />
+      <path d="M2 12h3.5" />
+      <path d="M18.5 12H22" />
+    </>
   ),
   "Clima y predicción": (
     <>
