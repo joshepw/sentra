@@ -64,6 +64,8 @@ export function LiveDashboard() {
     return () => clearInterval(iv);
   }, []);
 
+  const focusColor = sevColor(events[0]?.sev ?? "baja");
+
   return (
     <section className="pb-12 sm:pb-16 lg:pb-[90px]">
       <Container>
@@ -131,39 +133,46 @@ export function LiveDashboard() {
                         />
                       </svg>
 
-                      {markers.map((m) => (
-                        <div
-                          key={`${m.left}-${m.top}`}
-                          className="absolute -translate-x-1/2 -translate-y-1/2"
-                          style={{ left: `${m.left}%`, top: `${m.top}%` }}
-                        >
-                          {m.tone === "active" && (
-                            <>
-                              <span className="absolute left-1/2 top-1/2 size-14 -translate-x-1/2 -translate-y-1/2 rounded-full border border-accent opacity-80 animate-sn-ripout" />
-                              <span className="absolute left-1/2 top-1/2 size-14 -translate-x-1/2 -translate-y-1/2 rounded-full border border-accent opacity-80 animate-sn-ripout [animation-delay:1.3s]" />
-                            </>
-                          )}
-                          <span
-                            className={`relative flex size-[13px] items-center justify-center rounded-full border-2 bg-bg-panel ${
-                              m.tone === "incident"
-                                ? "border-[#e0655a]"
-                                : m.tone === "congestion"
-                                  ? "border-[#e6b24d]"
-                                  : "border-accent"
-                            }`}
+                      {markers.map((m) => {
+                        const isActive = m.tone === "active";
+                        const color = isActive
+                          ? focusColor
+                          : m.tone === "incident"
+                            ? "#e0655a"
+                            : m.tone === "congestion"
+                              ? "#e6b24d"
+                              : "#3dd68c";
+
+                        return (
+                          <div
+                            key={`${m.left}-${m.top}`}
+                            className="absolute -translate-x-1/2 -translate-y-1/2"
+                            style={{ left: `${m.left}%`, top: `${m.top}%` }}
                           >
+                            {isActive && (
+                              <>
+                                <span
+                                  className="absolute left-1/2 top-1/2 size-14 -translate-x-1/2 -translate-y-1/2 rounded-full border opacity-80 animate-sn-ripout"
+                                  style={{ borderColor: color }}
+                                />
+                                <span
+                                  className="absolute left-1/2 top-1/2 size-14 -translate-x-1/2 -translate-y-1/2 rounded-full border opacity-80 animate-sn-ripout [animation-delay:1.3s]"
+                                  style={{ borderColor: color }}
+                                />
+                              </>
+                            )}
                             <span
-                              className={`size-[5px] rounded-full ${
-                                m.tone === "incident"
-                                  ? "bg-[#e0655a]"
-                                  : m.tone === "congestion"
-                                    ? "bg-[#e6b24d]"
-                                    : "bg-accent"
-                              }`}
-                            />
-                          </span>
-                        </div>
-                      ))}
+                              className="relative flex size-[13px] items-center justify-center rounded-full border-2 bg-bg-panel transition-colors duration-500"
+                              style={{ borderColor: color }}
+                            >
+                              <span
+                                className="size-[5px] rounded-full transition-colors duration-500"
+                                style={{ background: color }}
+                              />
+                            </span>
+                          </div>
+                        );
+                      })}
                     </>
                   );
                 })()}
