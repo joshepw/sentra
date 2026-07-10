@@ -55,7 +55,7 @@ export function Impacto() {
 
         <div className="flex flex-wrap items-center justify-between gap-5 rounded-2xl border border-[rgba(61,214,140,0.28)] bg-bg-card-2 p-6 sm:gap-6 lg:p-[40px_44px]">
           <div className="max-w-[740px] font-display text-xl font-bold leading-tight tracking-[-0.02em] sm:text-2xl lg:text-[30px]">
-            Sobre la infraestructura que ya pagaste, Sentra multiplica lo que tu
+            Sobre la infraestructura que ya pagaste, Senttra multiplica lo que tu
             equipo puede <span className="text-accent">ver y prevenir</span>.
           </div>
           <Link

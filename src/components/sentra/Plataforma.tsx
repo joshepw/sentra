@@ -85,9 +85,9 @@ export function Plataforma() {
       className="border-t border-[rgba(141,168,154,0.16)] bg-bg-panel py-12 sm:py-16 lg:py-[90px]"
     >
       <Container>
-        <Eyebrow>La plataforma · Sentra One</Eyebrow>
+        <Eyebrow>La plataforma · Senttra One</Eyebrow>
         <SectionTitle className="mb-3.5 max-w-[820px]">
-          <span className="text-accent">Sentra One:</span> una capa de
+          <span className="text-accent">Senttra One:</span> una capa de
           inteligencia sobre tus cámaras y sensores
         </SectionTitle>
         <SectionIntro className="mb-8 max-w-[640px] sm:mb-11">

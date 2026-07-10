@@ -26,7 +26,7 @@ export function Contacto() {
     const mensaje = String(form.get("mensaje") || "");
     const body = `Tipo: ${wizType}\nServicios: ${wizServices.join(", ")}\nNombre: ${nombre}\nContacto: ${contacto}\n\n${mensaje}`;
 
-    window.location.href = `mailto:hola@sentra.io?subject=${encodeURIComponent(`Solicitud Sentra — ${wizType}`)}&body=${encodeURIComponent(body)}`;
+    window.location.href = `mailto:hola@senttra.com?subject=${encodeURIComponent(`Solicitud Senttra — ${wizType}`)}&body=${encodeURIComponent(body)}`;
     setWizName(nombre);
     setWizSent(true);
   };
@@ -55,14 +55,14 @@ export function Contacto() {
           </h2>
           <p className="mx-auto mt-5 max-w-[600px] text-base leading-[1.55] text-text-muted sm:mt-[26px] sm:text-lg lg:text-xl">
             Agenda una demo del centro de monitoreo o conversemos sobre cómo
-            invertir en Sentra.
+            invertir en Senttra.
           </p>
         </div>
 
         <div className="mt-10 grid gap-8 text-left sm:mt-14 sm:gap-11 lg:grid-cols-[0.8fr_1.2fr]">
           <div className="flex flex-col">
             {[
-              { label: "Correo", value: "hola@sentra.io" },
+              { label: "Correo", value: "hola@senttra.com" },
               { label: "Ubicación", value: "San Pedro Sula, Honduras" },
               { label: "Respuesta", value: "En 24–48 horas" },
             ].map((item, i, arr) => (
@@ -115,7 +115,7 @@ export function Contacto() {
                   <span className="text-text">
                     {wizServices.join(", ") || "los servicios seleccionados"}
                   </span>
-                  . También abrimos tu correo hacia hola@sentra.io.
+                  . También abrimos tu correo hacia hola@senttra.com.
                 </div>
               </div>
             ) : wizStep === 0 ? (

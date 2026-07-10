@@ -106,7 +106,7 @@ export function Desafio() {
 
             <div className="flex flex-col rounded-2xl border border-[rgba(61,214,140,0.4)] bg-bg-card p-5 sm:p-8">
               <div className="font-mono text-[11px] font-semibold uppercase tracking-[0.18em] text-accent">
-                Sentra · Anticipación
+                Senttra · Anticipación
               </div>
               <div className="mt-3.5 font-display text-2xl font-bold leading-tight">
                 Actuamos antes del impacto

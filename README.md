@@ -1,6 +1,6 @@
-# Sentra
+# Senttra
 
-Sitio web oficial de **Sentra One** — plataforma de resiliencia y monitoreo Smart City para San Pedro Sula (región Merendón, Honduras).
+Sitio web oficial de **Senttra One** ([senttra.com](https://senttra.com)) — plataforma de resiliencia y monitoreo Smart City para San Pedro Sula (región Merendón, Honduras).
 
 Construido con [Next.js](https://nextjs.org) y listo para desplegar en [Vercel](https://vercel.com).
 
@@ -11,7 +11,7 @@ npm install
 npm run dev
 ```
 
-Abre [http://localhost:3000](http://localhost:3000) en el navegador.
+Abre [http://localhost:3001](http://localhost:3001) en el navegador.
 
 ## Scripts
 
@@ -48,4 +48,4 @@ npx vercel --prod
 
 ## Diseño
 
-El sitio reproduce el handoff de diseño **Sentra Sitio** (tema oscuro tipo control room, acento verde `#3dd68c`, tipografías Archivo + IBM Plex). Las referencias originales del ZIP de diseño están en `design-handoff/` (ignorado en git; los assets viven en `public/assets/`).
+El sitio reproduce el handoff de diseño (tema oscuro tipo control room, acento verde `#3dd68c`, tipografías Archivo + IBM Plex). Las referencias originales del ZIP de diseño están en `design-handoff/` (ignorado en git; los assets viven en `public/assets/`).

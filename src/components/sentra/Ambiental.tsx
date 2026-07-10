@@ -61,7 +61,7 @@ export function Ambiental() {
         <div className="overflow-hidden rounded-[20px] border border-[rgba(141,168,154,0.28)] bg-bg-panel">
           <div className="flex items-center justify-between border-b border-[rgba(141,168,154,0.16)] px-4 py-4 sm:px-7 sm:py-5">
             <div className="font-mono text-xs font-semibold uppercase tracking-[0.18em] text-text-muted">
-              Estación ambiental · Sentra One
+              Estación ambiental · Senttra One
             </div>
             <div className="flex items-center gap-2 font-mono text-[11px] font-medium tracking-[0.16em] text-accent">
               <span className="block size-2 animate-sn-pulse rounded-full bg-accent" />

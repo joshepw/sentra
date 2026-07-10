@@ -38,7 +38,7 @@ export function Nosotros() {
             Un equipo local resolviendo problemas de ciudad
           </SectionTitle>
           <p className="mb-5 max-w-[600px] text-lg leading-relaxed text-text-muted">
-            Sentra es un equipo hondureño que construye inteligencia artificial
+            Senttra es un equipo hondureño que construye inteligencia artificial
             aplicada a los retos reales de nuestras ciudades: seguridad vial,
             seguridad ciudadana y resiliencia climática.
           </p>
@@ -127,7 +127,7 @@ export function Nosotros() {
               Plataforma única
             </div>
             <div className="mt-3 font-display text-[28px] font-bold leading-tight">
-              Sentra One · Centro de Monitoreo
+              Senttra One · Centro de Monitoreo
             </div>
           </div>
         </div>

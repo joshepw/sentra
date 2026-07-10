@@ -21,9 +21,10 @@ const ibmPlexMono = IBM_Plex_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Sentra — Smart City · Resiliencia y Monitoreo",
+  title: "Senttra — Smart City · Resiliencia y Monitoreo",
   description:
-    "Sentra convierte las cámaras y sensores de tu ciudad en datos inteligentes para prevenir accidentes, anticipar riesgos y decidir con evidencia.",
+    "Senttra convierte las cámaras y sensores de tu ciudad en datos inteligentes para prevenir accidentes, anticipar riesgos y decidir con evidencia.",
+  metadataBase: new URL("https://senttra.com"),
 };
 
 export default function RootLayout({

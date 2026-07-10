@@ -138,7 +138,7 @@ export function SentraWordmark({ size = "md" }: { size?: "sm" | "md" }) {
 
   return (
     <span className={`inline-flex items-baseline font-display font-bold tracking-[-0.01em] ${textSize}`}>
-      Sentra
+      Senttra
       <span className={`ml-px leading-none text-accent animate-sn-caret ${dotSize}`}>
         .
       </span>

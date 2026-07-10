@@ -11,10 +11,10 @@ export function Footer() {
         <div className="font-mono text-[11px] font-medium uppercase leading-relaxed tracking-[0.1em] text-text-faint">
           IA · Seguridad · Medio Ambiente
           <br />
-          San Pedro Sula, Honduras · hola@sentra.io
+          San Pedro Sula, Honduras · hola@senttra.com
         </div>
         <div className="font-mono text-[11px] font-medium tracking-[0.1em] text-text-faint">
-          © 2026 Sentra
+          © 2026 Senttra
         </div>
       </Container>
     </footer>

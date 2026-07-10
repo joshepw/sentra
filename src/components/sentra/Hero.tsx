@@ -75,7 +75,7 @@ export function Hero() {
         </h1>
 
         <p className="relative mt-5 max-w-[680px] text-base leading-[1.55] text-text-muted sm:mt-[30px] sm:text-lg lg:text-[21px]">
-          Sentra convierte las cámaras y sensores de tu ciudad en datos
+          Senttra convierte las cámaras y sensores de tu ciudad en datos
           inteligentes que ayudan a prevenir accidentes, anticipar riesgos y
           decidir con evidencia — en segundos, no en horas
           <span className="text-accent">.</span>
