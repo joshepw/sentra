@@ -48,7 +48,7 @@ export default function DemoPage() {
 
   // ---- carga inicial ----
   useEffect(() => {
-    fetch(`${API}/api/dia?k=${encodeURIComponent(TOKEN)}`)
+    fetch(`${API}/api/dia?k=${encodeURIComponent(TOKEN)}&_=${Date.now()}`)
       .then((r) => r.json())
       .then((d: Dia) => {
         setData(d);
@@ -118,7 +118,7 @@ export default function DemoPage() {
     trailsRef.current = new Map();
     const key = `${camId}/${hk}`;
     if (!detCache.current.has(key)) {
-      try { detCache.current.set(key, await (await fetch(media(`${camId}/det/${hk}.json`))).json()); }
+      try { detCache.current.set(key, await (await fetch(media(`${camId}/det/${hk}.json`)+"&_="+Date.now())).json()); }
       catch { detCache.current.set(key, null); }
     }
     detRef.current = detCache.current.get(key) ?? null;
