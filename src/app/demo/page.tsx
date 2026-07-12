@@ -32,6 +32,7 @@ export default function DemoPage() {
   const [sel, setSel] = useState(0);
   const [hour, setHour] = useState("09");
   const [tg, setTg] = useState({ cajas: true, etiquetas: true, rastros: true });
+  const [loading, setLoading] = useState(false);
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -108,13 +109,18 @@ export default function DemoPage() {
     raf = requestAnimationFrame(loop);
     const v = videoRef.current;
     const onSeeked = () => { trailsRef.current = new Map(); };
+    const onReady = () => setLoading(false);      // arrancó a reproducir -> quita el loader
     v?.addEventListener("seeked", onSeeked);
-    return () => { cancelAnimationFrame(raf); v?.removeEventListener("seeked", onSeeked); };
+    v?.addEventListener("playing", onReady);
+    v?.addEventListener("error", onReady);
+    return () => { cancelAnimationFrame(raf); v?.removeEventListener("seeked", onSeeked);
+      v?.removeEventListener("playing", onReady); v?.removeEventListener("error", onReady); };
   }, [data]);
 
   // ---- cambiar de cámara/hora (+ seek opcional) ----
   const load = useCallback(async (camId: string, hk: string, seek?: number) => {
     const v = videoRef.current; if (!v) return;
+    setLoading(true);                              // feedback inmediato al clickear
     trailsRef.current = new Map();
     const key = `${camId}/${hk}`;
     if (!detCache.current.has(key)) {
@@ -174,7 +180,7 @@ export default function DemoPage() {
           const on = hk === hour, en = anyHour(hk);
           return (
             <button key={hk} disabled={!en} onClick={() => setHour(hk)}
-              className={`rounded-md border px-2.5 py-1.5 font-mono text-[11.5px] transition-colors ${on ? "border-accent bg-[#123a2a] text-accent" : "border-[var(--border)] bg-bg-input text-text-muted"} ${en ? "" : "opacity-25"}`}>
+              className={`rounded-md border px-2.5 py-1.5 font-mono text-[11.5px] transition-colors ${on ? "border-accent bg-[#123a2a] text-accent" : "border-[var(--border)] bg-bg-input text-text-muted"} ${en ? "cursor-pointer hover:border-accent hover:text-text" : "opacity-25"}`}>
               {hk}h
             </button>
           );
@@ -225,7 +231,7 @@ export default function DemoPage() {
             <div className="flex gap-2">
               {(["cajas", "etiquetas", "rastros"] as const).map((k) => (
                 <button key={k} onClick={() => setTg((s) => ({ ...s, [k]: !s[k] }))}
-                  className={`rounded-lg border px-2.5 py-1.5 font-mono text-[10.5px] uppercase tracking-[0.08em] transition-colors ${tg[k] ? "border-accent bg-[#123a2a] text-accent" : "border-[var(--border)] bg-bg-input text-text-faint"}`}>
+                  className={`cursor-pointer rounded-lg border px-2.5 py-1.5 font-mono text-[10.5px] uppercase tracking-[0.08em] transition-colors hover:border-accent ${tg[k] ? "border-accent bg-[#123a2a] text-accent" : "border-[var(--border)] bg-bg-input text-text-faint"}`}>
                   {k}
                 </button>
               ))}
@@ -239,6 +245,12 @@ export default function DemoPage() {
               <span className="size-[7px] animate-sn-pulse rounded-full bg-danger" />REC
             </div>
             {!cam.hours[hour] && <div className="absolute inset-0 flex items-center justify-center bg-bg text-sm text-text-faint">sin video en esta hora</div>}
+            {loading && cam.hours[hour] && (
+              <div className="absolute inset-0 z-10 flex items-center justify-center gap-3 bg-[rgba(8,20,17,0.55)] backdrop-blur-[1px]">
+                <span className="size-8 animate-spin rounded-full border-[3px] border-accent/25 border-t-accent" />
+                <span className="font-mono text-[11px] font-semibold uppercase tracking-[0.14em] text-accent">Cargando</span>
+              </div>
+            )}
           </div>
           <div className="mt-3 flex items-center gap-3 font-mono text-[11px] text-text-faint">
             <span>Hora {hour}:00</span>
@@ -261,7 +273,7 @@ export default function DemoPage() {
               const tag = rojo ? "ROJO" : v.kind === "uturn" ? "U" : "GIRO";
               return (
                 <button key={idx} onClick={() => jump(v)}
-                  className="flex w-full items-center gap-3 border-b border-[var(--border)] px-5 py-3 text-left transition-colors hover:bg-bg-card">
+                  className="flex w-full cursor-pointer items-center gap-3 border-b border-[var(--border)] px-5 py-3 text-left transition-colors hover:bg-bg-card active:translate-y-px">
                   <span className={`flex size-[34px] shrink-0 items-center justify-center rounded-md border border-[var(--border)] font-mono text-[9px] font-bold ${rojo ? "bg-[#2a0f14] text-[#ff8598]" : "bg-[#2a1512] text-danger"}`}>{tag}</span>
                   <span className="min-w-0 flex-1">
                     <span className="block text-[13px] font-semibold text-danger">{label}</span>
@@ -290,9 +302,9 @@ export default function DemoPage() {
             return (
               <button key={hk} disabled={!cam.hours[hk]} onClick={() => setHour(hk)}
                 title={`${hk}:00 · ${nf(nv)} veh · ${ni} infr`}
-                className="relative flex flex-1 flex-col justify-end">
+                className="group relative flex flex-1 cursor-pointer flex-col justify-end disabled:cursor-default">
                 {ni > 0 && <span className="absolute inset-x-0 z-10 h-0.5 bg-danger" style={{ bottom: `${(ni / infMax) * 100}%` }} />}
-                <span className={`rounded-t-sm ${hk === hour ? "bg-accent" : "bg-[#2e7d64]"}`} style={{ height: `${(nv / barMax) * 100}%`, minHeight: 1 }} />
+                <span className={`rounded-t-sm transition-[filter] group-hover:brightness-150 ${hk === hour ? "bg-accent" : "bg-[#2e7d64]"}`} style={{ height: `${(nv / barMax) * 100}%`, minHeight: 1 }} />
               </button>
             );
           })}
