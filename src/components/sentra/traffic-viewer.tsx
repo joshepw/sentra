@@ -50,6 +50,7 @@ export function TrafficViewer({ token, admin = false }: { token: string; admin?:
   const detRef = useRef<Det | null>(null);
   const trailsRef = useRef<Map<number, [number, number, number][]>>(new Map());
   const detCache = useRef<Map<string, Det | null>>(new Map());
+  const pendingSeek = useRef<number | null>(null);   // seek a aplicar cuando cambia la hora
   const tgRef = useRef(tg);
   tgRef.current = tg;
 
@@ -95,7 +96,10 @@ export function TrafficViewer({ token, admin = false }: { token: string; admin?:
             const boxes = d.boxes[slot] ?? d.boxes[slot - 1] ?? d.boxes[slot + 1];
             const sx = c.width / d.nw, sy = c.height / d.nh;
             const t = tgRef.current;
+            const drawn = new Set<number>();   // dedup: 2 frames pueden caer en el mismo slot
             if (boxes) for (const [id, x, y, w, h] of boxes) {
+              if (drawn.has(id)) continue;
+              drawn.add(id);
               const infr = infrRef.current.has(id);
               const cls = d.ids[id] ?? 2;
               const color = infr ? "#ff2f4d" : (COL[cls] ?? "#9aa");
@@ -151,9 +155,15 @@ export function TrafficViewer({ token, admin = false }: { token: string; admin?:
     v.src = media(`${camId}/video/${hk}.mp4`); v.load();
   }, [media]);
 
+  // Único punto de carga: al cambiar cámara/hora. Si venía un seek pendiente (de un clic a
+  // infracción de OTRA hora) lo aplica; si no, arranca al inicio. Evita el doble-load que
+  // competía (uno con seek, otro sin) y dejaba el video en un momento aleatorio.
   useEffect(() => {
     if (!cam) return;
-    if (cam.hours[hour]) void load(cam.id, hour);
+    if (cam.hours[hour]) {
+      const s = pendingSeek.current; pendingSeek.current = null;
+      void load(cam.id, hour, s ?? undefined);
+    }
   }, [cam, hour, load]);
 
   const pickCam = (i: number) => {
@@ -162,7 +172,11 @@ export function TrafficViewer({ token, admin = false }: { token: string; admin?:
     const c = data.cams[i];
     setHour(c.hours[hour] ? hour : Object.keys(c.hours)[0] ?? hour);
   };
-  const jump = (v: Infr) => { if (!cam) return; setHour(v.hh); void load(cam.id, v.hh, v.t); };
+  const jump = (v: Infr) => {
+    if (!cam) return;
+    if (v.hh === hour) void load(cam.id, v.hh, v.t);   // misma hora: el efecto no dispara -> carga directa
+    else { pendingSeek.current = v.t; setHour(v.hh); }  // otra hora: el efecto carga con el seek pendiente
+  };
 
   // ---- guardar veredicto/razón de una infracción (admin) ----
   const postReview = useCallback(async (v: Infr, patch: { verdict?: string; reason?: string }) => {
