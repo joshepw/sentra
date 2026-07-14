@@ -42,6 +42,7 @@ export function TrafficViewer({ token, admin = false }: { token: string; admin?:
   const [tg, setTg] = useState({ cajas: true, etiquetas: true, rastros: true });
   const [loading, setLoading] = useState(false);
   const [reviews, setReviews] = useState<Record<string, Rev>>({});
+  const [det, setDet] = useState<Det | null>(null);   // det de la hora actual (para la galería)
 
   const media = useCallback((p: string) => `${API}/data/${p}?k=${encodeURIComponent(token)}`, [token]);
 
@@ -56,6 +57,7 @@ export function TrafficViewer({ token, admin = false }: { token: string; admin?:
 
   const cam = data?.cams[sel];
   const infrIds = useMemo(() => new Set((cam?.infr ?? []).map((v) => v.id)), [cam]);
+  const infrById = useMemo(() => new Map((cam?.infr ?? []).map((v) => [v.id, v.kind] as const)), [cam]);
   const infrRef = useRef(infrIds);
   infrRef.current = infrIds;
 
@@ -150,6 +152,7 @@ export function TrafficViewer({ token, admin = false }: { token: string; admin?:
       catch { detCache.current.set(key, null); }
     }
     detRef.current = detCache.current.get(key) ?? null;
+    setDet(detRef.current);
     const target = seek != null ? Math.max(0, seek - 3) : 0;
     v.onloadedmetadata = () => { try { v.currentTime = target; } catch {} void v.play().catch(() => {}); };
     v.src = media(`${camId}/video/${hk}.mp4`); v.load();
@@ -388,7 +391,177 @@ export function TrafficViewer({ token, admin = false }: { token: string; admin?:
         </div>
         <HourlyChart hoursList={hoursList} hoursData={cam.hours} infByHour={infByHour} current={hour} onPick={setHour} />
       </div>
+
+      {/* GALERÍA DE VEHÍCULOS (fotitos, recortadas del video en el navegador) */}
+      <VehicleGallery camId={cam.id} camName={cam.nombre} hour={hour} det={det} media={media}
+        infrById={infrById} onSeek={(t) => void load(cam.id, hour, t)} />
     </Shell>
+  );
+}
+
+// Galería de vehículos: un tile por vehículo detectado en la hora seleccionada. La miniatura
+// se RECORTA del video en el navegador (canvas), así "todos los vehículos" no requiere generar
+// miles de imágenes en el servidor. Solo se generan las miniaturas de la página visible.
+type Veh = { id: number; cls: number; t: number; x: number; y: number; w: number; h: number; infr: boolean; kind?: "giro" | "uturn" | "rojo" };
+const KIND_LABEL: Record<string, string> = { giro: "GIRO", uturn: "VUELTA U", rojo: "ROJO" };
+
+function VehicleGallery({ camId, camName, hour, det, media, infrById, onSeek }: {
+  camId: string; camName: string; hour: string; det: Det | null;
+  media: (p: string) => string; infrById: Map<number, "giro" | "uturn" | "rojo">;
+  onSeek: (t: number) => void;
+}) {
+  const PAGE = 24;
+  const [fTipo, setFTipo] = useState("Todos");
+  const [fId, setFId] = useState("");
+  const [soloInfr, setSoloInfr] = useState(false);
+  const [page, setPage] = useState(0);
+  const [thumbs, setThumbs] = useState<Record<number, string>>({});
+  const thumbsRef = useRef(thumbs); thumbsRef.current = thumbs;
+  const vidRef = useRef<HTMLVideoElement>(null);
+
+  useEffect(() => { setPage(0); setThumbs({}); }, [camId, hour]);
+  useEffect(() => { setPage(0); }, [fTipo, fId, soloInfr]);
+
+  const vehicles = useMemo<Veh[]>(() => {
+    if (!det) return [];
+    const best = new Map<number, { area: number; slot: number; x: number; y: number; w: number; h: number }>();
+    for (const [s, arr] of Object.entries(det.boxes)) {
+      const slot = +s;
+      for (const [id, x, y, w, h] of arr) {
+        const a = w * h; const cur = best.get(id);
+        if (!cur || a > cur.area) best.set(id, { area: a, slot, x, y, w, h });
+      }
+    }
+    const list: Veh[] = [];
+    best.forEach((b, id) => list.push({
+      id, cls: det.ids[id] ?? 2, t: b.slot / det.fps, x: b.x, y: b.y, w: b.w, h: b.h,
+      infr: infrById.has(id), kind: infrById.get(id),
+    }));
+    list.sort((a, b) => a.t - b.t);
+    return list;
+  }, [det, infrById]);
+
+  const filtered = useMemo(() => vehicles.filter((v) => {
+    if (soloInfr && !v.infr) return false;
+    if (fTipo !== "Todos" && (TIPO[v.cls] ?? "") !== fTipo) return false;
+    if (fId.trim() && !String(v.id).includes(fId.trim())) return false;
+    return true;
+  }), [vehicles, soloInfr, fTipo, fId]);
+
+  const pages = Math.max(1, Math.ceil(filtered.length / PAGE));
+  const cur = Math.min(page, pages - 1);
+  const slice = filtered.slice(cur * PAGE, cur * PAGE + PAGE);
+  const sliceKey = slice.map((v) => v.id).join(",");
+
+  // Genera las miniaturas de la página visible: busca el frame representativo de cada vehículo
+  // en un <video> oculto (crossOrigin, el backend manda ACAO:*) y recorta su caja a un canvas.
+  useEffect(() => {
+    const v = vidRef.current; if (!v || !det || !slice.length) return;
+    let cancelled = false;
+    const canvas = document.createElement("canvas");
+    const waitReady = () => v.readyState >= 2 ? Promise.resolve() : new Promise<void>((res) => {
+      const h = () => { v.removeEventListener("loadeddata", h); res(); }; v.addEventListener("loadeddata", h);
+    });
+    const seekTo = (t: number) => new Promise<void>((res) => {
+      const h = () => { v.removeEventListener("seeked", h); res(); };
+      v.addEventListener("seeked", h);
+      try { v.currentTime = t; } catch { v.removeEventListener("seeked", h); res(); }
+    });
+    (async () => {
+      await waitReady();
+      for (const veh of slice) {
+        if (cancelled) return;
+        if (thumbsRef.current[veh.id] !== undefined) continue;
+        await seekTo(veh.t);
+        if (cancelled) return;
+        const sc = v.videoWidth ? v.videoWidth / det.nw : 1;
+        const pad = 0.18, bw = veh.w * sc, bh = veh.h * sc;
+        const cw = Math.max(8, bw * (1 + 2 * pad)), ch = Math.max(8, bh * (1 + 2 * pad));
+        const px = Math.max(0, veh.x * sc - bw * pad), py = Math.max(0, veh.y * sc - bh * pad);
+        const TW = 200, TH = Math.max(60, Math.round(TW * ch / cw));
+        canvas.width = TW; canvas.height = TH;
+        const ctx = canvas.getContext("2d"); if (!ctx) return;
+        let url = "";
+        try { ctx.drawImage(v, px, py, cw, ch, 0, 0, TW, TH); url = canvas.toDataURL("image/jpeg", 0.72); }
+        catch { url = ""; }
+        if (!cancelled) setThumbs((s) => ({ ...s, [veh.id]: url }));
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [sliceKey, det]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const time = (t: number) => `${hour}:${String(Math.floor(t / 60)).padStart(2, "0")}:${String(Math.floor(t % 60)).padStart(2, "0")}`;
+  const selCls = "appearance-none rounded-lg border border-[var(--border-strong)] bg-[#0f241b] px-3.5 py-2.5 font-sans text-[13px] text-text outline-none";
+  const pageBtn = "rounded-lg border border-[var(--border-strong)] px-3 py-2 font-mono text-[12px] text-text-muted transition-colors hover:text-accent disabled:opacity-35 disabled:hover:text-text-muted";
+
+  return (
+    <div className="mt-6 rounded-2xl border border-[var(--border-strong)] bg-bg-panel p-6">
+      <video ref={vidRef} src={media(`${camId}/video/${hour}.mp4`)} crossOrigin="anonymous" muted playsInline preload="auto" className="hidden" />
+      <div className="flex items-baseline gap-3">
+        <div className="font-mono text-[11px] font-semibold uppercase tracking-[0.16em] text-text-muted">Galería de vehículos</div>
+        <div className="font-display text-lg font-extrabold text-text">{nf(filtered.length)}</div>
+        <div className="font-mono text-[12px] text-accent">vehículos · {camName}</div>
+      </div>
+
+      <div className="mt-5 flex flex-wrap items-end gap-4">
+        <label className="flex flex-col gap-2">
+          <span className="font-mono text-[9px] uppercase tracking-[0.16em] text-text-faint">Tipo</span>
+          <select value={fTipo} onChange={(e) => setFTipo(e.target.value)} className={selCls}>
+            {["Todos", "Auto", "Moto", "Bus", "Camión"].map((o) => <option key={o} value={o}>{o}</option>)}
+          </select>
+        </label>
+        <label className="flex flex-col gap-2">
+          <span className="font-mono text-[9px] uppercase tracking-[0.16em] text-text-faint">Buscar ID</span>
+          <input value={fId} onChange={(e) => setFId(e.target.value)} placeholder="# id…" className={`${selCls} w-[130px] placeholder:text-text-faint`} />
+        </label>
+        <button onClick={() => setSoloInfr((s) => !s)} className="flex items-center gap-2.5 py-2.5 font-sans text-[13px] text-text">
+          <span className={`grid size-4 place-items-center rounded border ${soloInfr ? "border-danger bg-danger text-[#081411]" : "border-[var(--border-strong)]"}`}>{soloInfr ? "✓" : ""}</span>
+          Solo infracciones
+        </button>
+        <button onClick={() => { setFTipo("Todos"); setFId(""); setSoloInfr(false); }} className="py-2.5 font-sans text-[13px] text-text-muted transition-colors hover:text-accent">Limpiar</button>
+      </div>
+
+      {filtered.length === 0 ? (
+        <p className="mt-6 font-mono text-xs text-text-faint">Sin vehículos para este filtro.</p>
+      ) : (
+        <div className="mt-5 grid grid-cols-2 gap-2.5 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">
+          {slice.map((v) => {
+            const thumb = thumbs[v.id];
+            return (
+              <button key={v.id} onClick={() => onSeek(v.t)} title={`#${v.id} · ${time(v.t)}`}
+                className="group overflow-hidden rounded-[10px] border border-[var(--border)] bg-bg-card text-left transition-colors hover:border-accent">
+                <div className="relative h-[92px] bg-[#081411]">
+                  {thumb ? (
+                    <img src={thumb} alt={`Vehículo ${v.id}`} className="h-full w-full object-cover" />
+                  ) : (
+                    <svg viewBox="0 0 120 92" preserveAspectRatio="none" className={`absolute inset-0 h-full w-full ${thumb === undefined ? "animate-sn-pulse" : ""}`}>
+                      <path d="M9 22V9h13M98 9h13v13M111 70v13H98M22 83H9V70" fill="none" stroke="rgba(61,214,140,.35)" strokeWidth={2} />
+                    </svg>
+                  )}
+                  <span className="absolute left-1.5 top-1.5 rounded bg-[rgba(8,20,17,.82)] px-1.5 py-1 font-mono text-[9px] font-semibold text-text">{TIPO[v.cls] ?? "—"}</span>
+                  {v.infr && <span className="absolute right-1.5 top-1.5 rounded bg-danger px-1.5 py-1 font-mono text-[8px] font-bold tracking-[0.08em] text-[#081411]">{KIND_LABEL[v.kind ?? "rojo"]}</span>}
+                </div>
+                <div className="flex items-center justify-between border-t border-[var(--border)] px-2.5 py-2">
+                  <span className="flex items-center gap-1.5">
+                    <span className="size-2 rounded-full" style={{ background: COL[v.cls] ?? "#9aa" }} />
+                    <span className="font-mono text-[11px] font-semibold text-text">#{v.id}</span>
+                  </span>
+                  <span className="font-mono text-[10px] text-accent">{time(v.t)}</span>
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      )}
+
+      {pages > 1 && (
+        <div className="mt-6 flex items-center justify-center gap-2">
+          <button onClick={() => setPage(cur - 1)} disabled={cur === 0} className={pageBtn}>‹ Anterior</button>
+          <span className="px-2 font-mono text-[12px] text-text-muted">{cur + 1} / {pages}</span>
+          <button onClick={() => setPage(cur + 1)} disabled={cur >= pages - 1} className={pageBtn}>Siguiente ›</button>
+        </div>
+      )}
+    </div>
   );
 }
 
