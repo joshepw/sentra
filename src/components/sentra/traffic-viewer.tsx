@@ -234,6 +234,21 @@ export function TrafficViewer({ token, admin = false }: { token: string; admin?:
         })}
       </div>
 
+      {/* selector de cámaras (confiable, además del mapa) */}
+      <div className="mb-4 flex flex-wrap items-center gap-1.5 rounded-2xl border border-[var(--border-strong)] bg-bg-panel p-3">
+        <span className="pr-1 font-mono text-[10px] uppercase tracking-[0.14em] text-text-faint">Cámara:</span>
+        {data.cams.map((c, i) => {
+          const on = i === sel; const inf = c.n_giro + c.n_rojo;
+          const short = c.nombre.match(/\(([^)]+)\)/)?.[1] ?? c.nombre.split("-").pop()?.trim() ?? c.id;
+          return (
+            <button key={c.id} onClick={() => pickCam(i)}
+              className={`cursor-pointer rounded-md border px-2.5 py-1.5 font-mono text-[11px] transition-colors ${on ? "border-accent bg-[#123a2a] text-accent" : "border-[var(--border)] bg-bg-input text-text-muted hover:border-accent hover:text-text"}`}>
+              {short}{inf > 0 && <span className="ml-1.5 text-danger">{inf}</span>}
+            </button>
+          );
+        })}
+      </div>
+
       <div className="mb-4 flex flex-col gap-4 lg:flex-row">
         {/* MAPA */}
         <div className="flex min-w-0 flex-col overflow-hidden rounded-2xl border border-[var(--border-strong)] bg-bg-panel lg:flex-1">
@@ -256,6 +271,7 @@ export function TrafficViewer({ token, admin = false }: { token: string; admin?:
                   </g>);
                 return (
                   <g key={c.id} transform={`translate(${x} ${y})`} className="cursor-pointer" onClick={() => pickCam(i)}>
+                    <circle r="17" fill="transparent" />{/* área de clic grande, invisible */}
                     <circle r="7" fill="#0f241b" stroke={hot ? "#e0655a" : "#3dd68c"} strokeWidth="1.6" />
                     <circle r="2.4" fill={hot ? "#e0655a" : "#3dd68c"} />
                   </g>);
