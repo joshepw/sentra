@@ -131,12 +131,12 @@ export function TrafficViewer({ token, admin = false }: { token: string; admin?:
     raf = requestAnimationFrame(loop);
     const v = videoRef.current;
     const onSeeked = () => { trailsRef.current = new Map(); };
-    const onReady = () => setLoading(false);
+    const onReady = () => setLoading(false);   // quita "CARGANDO" apenas hay imagen, no solo al reproducir
+    const READY = ["playing", "canplay", "loadeddata", "error"];
     v?.addEventListener("seeked", onSeeked);
-    v?.addEventListener("playing", onReady);
-    v?.addEventListener("error", onReady);
+    READY.forEach((e) => v?.addEventListener(e, onReady));
     return () => { cancelAnimationFrame(raf); v?.removeEventListener("seeked", onSeeked);
-      v?.removeEventListener("playing", onReady); v?.removeEventListener("error", onReady); };
+      READY.forEach((e) => v?.removeEventListener(e, onReady)); };
   }, [data]);
 
   // ---- cambiar de cámara/hora (+ seek opcional) ----
@@ -239,7 +239,9 @@ export function TrafficViewer({ token, admin = false }: { token: string; admin?:
         <span className="pr-1 font-mono text-[10px] uppercase tracking-[0.14em] text-text-faint">Cámara:</span>
         {data.cams.map((c, i) => {
           const on = i === sel; const inf = c.n_giro + c.n_rojo;
-          const short = c.nombre.match(/\(([^)]+)\)/)?.[1] ?? c.nombre.split("-").pop()?.trim() ?? c.id;
+          const paren = c.nombre.match(/\(([^)]+)\)/)?.[1] ?? c.nombre.split("-").pop()?.trim() ?? c.id;
+          const suf = c.nombre.match(/_\s*0?(\d+)\s*$/)?.[1];   // distingue _1/_2/_02
+          const short = paren.replace(/\s*_\s*0?\d+\s*$/, "") + (suf ? ` _${suf}` : "");
           return (
             <button key={c.id} onClick={() => pickCam(i)}
               className={`cursor-pointer rounded-md border px-2.5 py-1.5 font-mono text-[11px] transition-colors ${on ? "border-accent bg-[#123a2a] text-accent" : "border-[var(--border)] bg-bg-input text-text-muted hover:border-accent hover:text-text"}`}>
