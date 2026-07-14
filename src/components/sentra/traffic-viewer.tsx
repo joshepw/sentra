@@ -198,9 +198,7 @@ export function TrafficViewer({ token, admin = false }: { token: string; admin?:
   const avg = Math.round(data.totales.veh / 24);
   const hoursList = Array.from({ length: 24 }, (_, h) => hh2(h));
   const anyHour = (hk: string) => data.cams.some((c) => c.hours[hk]);
-  const barMax = Math.max(1, ...hoursList.map((hk) => cam.hours[hk]?.n_veh ?? 0));
   const infByHour = cam.infr.reduce<Record<string, number>>((a, v) => { a[v.hh] = (a[v.hh] ?? 0) + 1; return a; }, {});
-  const infMax = Math.max(1, ...Object.values(infByHour));
   const camPos = (i: number, n: number): [number, number] => [34 + (i * 252) / (n - 1), 210 - (i * 120) / (n - 1)];
   const marcadas = admin ? cam.infr.filter((v) => v.key && reviews[v.key]?.verdict).length : 0;
 
@@ -388,21 +386,80 @@ export function TrafficViewer({ token, admin = false }: { token: string; admin?:
             <span className="flex items-center gap-1.5"><span className="size-2.5 rounded-sm bg-danger" />Infracciones</span>
           </div>
         </div>
-        <div className="mt-4 flex h-[170px] items-stretch gap-[3px]">
-          {hoursList.map((hk) => {
-            const nv = cam.hours[hk]?.n_veh ?? 0, ni = infByHour[hk] ?? 0;
-            return (
-              <button key={hk} disabled={!cam.hours[hk]} onClick={() => setHour(hk)}
-                title={`${hk}:00 · ${nf(nv)} veh · ${ni} infr`}
-                className="group relative flex flex-1 cursor-pointer flex-col justify-end disabled:cursor-default">
-                {ni > 0 && <span className="absolute inset-x-0 z-10 h-0.5 bg-danger" style={{ bottom: `${(ni / infMax) * 100}%` }} />}
-                <span className={`rounded-t-sm transition-[filter] group-hover:brightness-150 ${hk === hour ? "bg-accent" : "bg-[#2e7d64]"}`} style={{ height: `${(nv / barMax) * 100}%`, minHeight: 1 }} />
-              </button>
-            );
-          })}
-        </div>
+        <HourlyChart hoursList={hoursList} hoursData={cam.hours} infByHour={infByHour} current={hour} onPick={setHour} />
       </div>
     </Shell>
+  );
+}
+
+// Gráfico por hora: barras de volumen (eje izq) + línea de infracciones (eje der), estilo
+// SVG con rejilla y ejes — como el diseño original (no las barras CSS crudas).
+function HourlyChart({ hoursList, hoursData, infByHour, current, onPick }: {
+  hoursList: string[]; hoursData: Record<string, HourInfo>;
+  infByHour: Record<string, number>; current: string; onPick: (hk: string) => void;
+}) {
+  const VBW = 1180, VBH = 300, padL = 46, padR = 42, padT = 14, padB = 34;
+  const plotW = VBW - padL - padR, plotH = VBH - padT - padB, baseY = padT + plotH;
+  const slot = plotW / 24, barW = slot * 0.56;
+  const niceMax = (v: number) => {
+    const p = Math.pow(10, Math.floor(Math.log10(Math.max(1, v))));
+    const n = v / p; const m = n <= 1 ? 1 : n <= 2 ? 2 : n <= 2.5 ? 2.5 : n <= 5 ? 5 : 10;
+    return m * p;
+  };
+  const rawV = Math.max(1, ...hoursList.map((hk) => hoursData[hk]?.n_veh ?? 0));
+  const rawI = Math.max(1, ...hoursList.map((hk) => infByHour[hk] ?? 0));
+  const maxV = niceMax(rawV), maxI = niceMax(rawI);
+  const yV = (v: number) => baseY - (v / maxV) * plotH;
+  const yI = (v: number) => baseY - (v / maxI) * plotH;
+  const cx = (i: number) => padL + slot * i + slot / 2;
+  const STEPS = 4;
+
+  const linePts = hoursList
+    .map((hk, i) => (hoursData[hk] ? `${cx(i)},${yI(infByHour[hk] ?? 0)}` : null))
+    .filter(Boolean).join(" ");
+
+  return (
+    <svg viewBox={`0 0 ${VBW} ${VBH}`} width="100%" className="mt-4 block h-auto select-none" role="img">
+      {/* rejilla + eje izquierdo (vehículos) */}
+      {Array.from({ length: STEPS + 1 }, (_, g) => {
+        const v = (maxV / STEPS) * g, y = yV(v);
+        return (
+          <g key={`g${g}`}>
+            <line x1={padL} y1={y} x2={VBW - padR} y2={y} stroke="rgba(141,168,154,.10)" strokeWidth={1} />
+            <text x={padL - 8} y={y + 3} fill="#5f7468" fontFamily="IBM Plex Mono, monospace" fontSize={9} textAnchor="end">{nf(Math.round(v))}</text>
+          </g>
+        );
+      })}
+      {/* eje derecho (infracciones) */}
+      {Array.from({ length: STEPS + 1 }, (_, g) => {
+        const v = (maxI / STEPS) * g;
+        return (
+          <text key={`ri${g}`} x={VBW - padR + 8} y={yI(v) + 3} fill="#a06a55" fontFamily="IBM Plex Mono, monospace" fontSize={9} textAnchor="start">{Math.round(v)}</text>
+        );
+      })}
+      {/* barras de volumen (clic = seleccionar hora) */}
+      {hoursList.map((hk, i) => {
+        const on = !!hoursData[hk]; const nv = hoursData[hk]?.n_veh ?? 0;
+        const y = yV(nv); const isCur = hk === current;
+        return (
+          <g key={`b${hk}`} onClick={() => on && onPick(hk)} className={on ? "cursor-pointer" : undefined}>
+            <title>{`${hk}:00 · ${nf(nv)} veh · ${infByHour[hk] ?? 0} infr`}</title>
+            <rect x={padL + slot * i} y={padT} width={slot} height={plotH} fill="transparent" />
+            {on && <rect x={cx(i) - barW / 2} y={y} width={barW} height={Math.max(0, baseY - y)} rx={1.5}
+              fill={isCur ? "#3dd68c" : "#2e7d64"} className="transition-[fill] hover:brightness-125" />}
+          </g>
+        );
+      })}
+      {/* línea de infracciones */}
+      <polyline points={linePts} fill="none" stroke="#e0655a" strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />
+      {hoursList.map((hk, i) => (hoursData[hk] ? (
+        <circle key={`d${hk}`} cx={cx(i)} cy={yI(infByHour[hk] ?? 0)} r={2.6} fill="#e0655a" />
+      ) : null))}
+      {/* etiquetas de hora cada 3 */}
+      {hoursList.map((hk, i) => (i % 3 === 0 ? (
+        <text key={`hl${hk}`} x={cx(i)} y={baseY + 18} fill="#5f7468" fontFamily="IBM Plex Mono, monospace" fontSize={9} textAnchor="middle">{hk}</text>
+      ) : null))}
+    </svg>
   );
 }
 
