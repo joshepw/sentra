@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { SentraLogoMark, SentraWordmark } from "@/components/sentra/ui";
+import { CorridorMap } from "@/components/sentra/corridor-map";
 
 const API = process.env.NEXT_PUBLIC_SENTRA_API ?? "https://transito.meteoro.xyz";
 
@@ -202,7 +203,6 @@ export function TrafficViewer({ token, admin = false }: { token: string; admin?:
   const hoursList = Array.from({ length: 24 }, (_, h) => hh2(h));
   const anyHour = (hk: string) => data.cams.some((c) => c.hours[hk]);
   const infByHour = cam.infr.reduce<Record<string, number>>((a, v) => { a[v.hh] = (a[v.hh] ?? 0) + 1; return a; }, {});
-  const camPos = (i: number, n: number): [number, number] => [34 + (i * 252) / (n - 1), 210 - (i * 120) / (n - 1)];
   const marcadas = admin ? cam.infr.filter((v) => v.key && reviews[v.key]?.verdict).length : 0;
 
   return (
@@ -252,46 +252,12 @@ export function TrafficViewer({ token, admin = false }: { token: string; admin?:
         })}
       </div>
 
-      <div className="mb-4 flex flex-col gap-4 lg:flex-row">
-        {/* MAPA */}
-        <div className="flex min-w-0 flex-col overflow-hidden rounded-2xl border border-[var(--border-strong)] bg-bg-panel lg:flex-1">
-          <div className="flex items-start justify-between gap-2 border-b border-[var(--border)] px-5 py-4">
-            <div className="font-mono text-[11px] font-semibold uppercase tracking-[0.14em] text-text-muted">Corredor 1ª Calle ·<br />Bulevar Morazán</div>
-            <div className="text-right font-mono text-[10px] tracking-[0.1em] text-text-faint"><span className="text-accent">{data.totales.n_cams}</span> cámaras</div>
-          </div>
-          <div className="relative min-h-[280px] flex-1">
-            <svg className="absolute inset-0 h-full w-full" viewBox="0 0 320 320" preserveAspectRatio="xMidYMid slice">
-              <rect width="320" height="320" fill="#07130e" />
-              <text x="14" y="150" fill="#4a5c52" fontFamily="var(--font-ibm-plex-mono)" fontSize="8" transform="rotate(-8 14 150)">BLVD MORAZÁN · 1ª CALLE</text>
-              {(() => { const n = data.cams.length; const [ax, ay] = camPos(0, n); const [bx, by] = camPos(n - 1, n);
-                return <line x1={ax} y1={ay} x2={bx} y2={by} stroke="#3dd68c" strokeOpacity="0.4" strokeWidth="1.4" strokeDasharray="2 6" />; })()}
-              {data.cams.map((c, i) => { const [x, y] = camPos(i, data.cams.length); const hot = c.n_giro + c.n_rojo > 0;
-                if (i === sel) return (
-                  <g key={c.id} transform={`translate(${x} ${y})`}>
-                    <circle r="24" fill="none" stroke="#3dd68c" strokeWidth="1.4" className="origin-center animate-sn-ripout" style={{ transformBox: "fill-box" }} />
-                    <circle r="10" fill="#3dd68c" fillOpacity="0.16" stroke="#3dd68c" strokeWidth="1.5" />
-                    <circle r="4.6" fill="#3dd68c" />
-                  </g>);
-                return (
-                  <g key={c.id} transform={`translate(${x} ${y})`} className="cursor-pointer" onClick={() => pickCam(i)}>
-                    <circle r="17" fill="transparent" />{/* área de clic grande, invisible */}
-                    <circle r="7" fill="#0f241b" stroke={hot ? "#e0655a" : "#3dd68c"} strokeWidth="1.6" />
-                    <circle r="2.4" fill={hot ? "#e0655a" : "#3dd68c"} />
-                  </g>);
-              })}
-            </svg>
-          </div>
-          <div className="border-t border-[var(--border)] px-5 py-4">
-            <div className="flex items-center gap-2">
-              <span className="size-2 rounded-full bg-accent shadow-[0_0_0_3px_rgba(61,214,140,0.18)]" />
-              <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-text-faint">Cámara seleccionada</span>
-            </div>
-            <div className="mt-2 font-display text-[15px] font-bold leading-tight">{cam.nombre}</div>
-          </div>
-        </div>
+      {/* MAPA REAL (calles de SPS) */}
+      <CorridorMap cams={data.cams} sel={sel} onPick={pickCam} admin={admin} api={API} token={token} />
 
+      <div className="mb-4">
         {/* DETECCIÓN */}
-        <div className="min-w-0 overflow-hidden rounded-2xl border border-[var(--border-strong)] bg-bg-panel p-5 lg:flex-[2.4]">
+        <div className="min-w-0 overflow-hidden rounded-2xl border border-[var(--border-strong)] bg-bg-panel p-5">
           <div className="mb-3.5 flex flex-wrap items-center justify-between gap-3">
             <div className="font-mono text-[11px] font-semibold uppercase tracking-[0.14em] text-text-muted">Detección anotada · {cam.nombre}</div>
             <div className="flex gap-2">
