@@ -223,20 +223,10 @@ export function TrafficViewer({ token, admin = false }: { token: string; admin?:
         ))}
       </div>
 
-      {/* selector de horas */}
-      <div className="mb-4 flex flex-wrap gap-1.5 rounded-2xl border border-[var(--border-strong)] bg-bg-panel p-3">
-        {hoursList.map((hk) => {
-          const on = hk === hour, en = anyHour(hk);
-          return (
-            <button key={hk} disabled={!en} onClick={() => setHour(hk)}
-              className={`rounded-md border px-2.5 py-1.5 font-mono text-[11.5px] transition-colors ${on ? "border-accent bg-[#123a2a] text-accent" : "border-[var(--border)] bg-bg-input text-text-muted"} ${en ? "cursor-pointer hover:border-accent hover:text-text" : "opacity-25"}`}>
-              {hk}h
-            </button>
-          );
-        })}
-      </div>
+      {/* MAPA REAL (calles de SPS) */}
+      <CorridorMap cams={data.cams} sel={sel} onPick={pickCam} admin={admin} api={API} token={token} />
 
-      {/* selector de cámaras (confiable, además del mapa) */}
+      {/* selector de cámaras (lugares) — debajo del mapa */}
       <div className="mb-4 flex flex-wrap items-center gap-1.5 rounded-2xl border border-[var(--border-strong)] bg-bg-panel p-3">
         <span className="pr-1 font-mono text-[10px] uppercase tracking-[0.14em] text-text-faint">Cámara:</span>
         {data.cams.map((c, i) => {
@@ -252,9 +242,6 @@ export function TrafficViewer({ token, admin = false }: { token: string; admin?:
           );
         })}
       </div>
-
-      {/* MAPA REAL (calles de SPS) */}
-      <CorridorMap cams={data.cams} sel={sel} onPick={pickCam} admin={admin} api={API} token={token} />
 
       <div className="mb-4 flex flex-col gap-4 lg:flex-row">
         {/* DETECCIÓN */}
@@ -288,6 +275,18 @@ export function TrafficViewer({ token, admin = false }: { token: string; admin?:
           <div className="mt-3 flex items-center gap-3 font-mono text-[11px] text-text-faint">
             <span>Hora {hour}:00</span>
             <span className="ml-auto">{nf(cam.hours[hour]?.n_veh ?? 0)} veh en esta hora</span>
+          </div>
+          {/* selector de horas — debajo del video */}
+          <div className="mt-3 flex flex-wrap gap-1.5 border-t border-[var(--border)] pt-3">
+            {hoursList.map((hk) => {
+              const on = hk === hour, en = anyHour(hk);
+              return (
+                <button key={hk} disabled={!en} onClick={() => setHour(hk)}
+                  className={`rounded-md border px-2.5 py-1.5 font-mono text-[11.5px] transition-colors ${on ? "border-accent bg-[#123a2a] text-accent" : "border-[var(--border)] bg-bg-input text-text-muted"} ${en ? "cursor-pointer hover:border-accent hover:text-text" : "opacity-25"}`}>
+                  {hk}h
+                </button>
+              );
+            })}
           </div>
         </div>
 
