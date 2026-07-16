@@ -207,6 +207,7 @@ export function TrafficViewer({ token, admin = false }: { token: string; admin?:
 
   return (
     <Shell wide admin={admin}>
+      {admin && <DemoPassPanel api={API} token={token} />}
       {/* KPIs */}
       <div className="mb-4 grid grid-cols-2 divide-[var(--border)] overflow-hidden rounded-2xl border border-[var(--border-strong)] bg-bg-panel lg:grid-cols-4 lg:divide-x">
         {[
@@ -362,6 +363,61 @@ export function TrafficViewer({ token, admin = false }: { token: string; admin?:
       <VehicleGallery camId={cam.id} camName={cam.nombre} hour={hour} det={det} media={media}
         infrById={infrById} onSeek={(t) => void load(cam.id, hour, t)} />
     </Shell>
+  );
+}
+
+// Panel de admin para cambiar la contraseña PÚBLICA del demo (senttra.com/demo). Lee/escribe
+// el pass en el backend (/api/demo-pass, solo admin); nunca queda hardcodeado en el repo.
+function DemoPassPanel({ api, token }: { api: string; token: string }) {
+  const [cur, setCur] = useState<string | null>(null);
+  const [val, setVal] = useState("");
+  const [show, setShow] = useState(false);
+  const [state, setState] = useState<"idle" | "saving" | "ok" | "err">("idle");
+
+  useEffect(() => {
+    fetch(`${api}/api/demo-pass?k=${encodeURIComponent(token)}&_=${Date.now()}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (d?.pass) { setCur(d.pass); setVal(d.pass); } })
+      .catch(() => {});
+  }, [api, token]);
+
+  const save = async () => {
+    const p = val.trim();
+    if (p.length < 4) { setState("err"); return; }
+    setState("saving");
+    try {
+      const r = await fetch(`${api}/api/demo-pass?k=${encodeURIComponent(token)}`, {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pass: p }),
+      });
+      if (r.ok) { setCur(p); setState("ok"); setTimeout(() => setState("idle"), 2200); } else setState("err");
+    } catch { setState("err"); }
+  };
+
+  const changed = cur !== null && val.trim() !== cur;
+  return (
+    <div className="mb-4 rounded-2xl border border-[var(--border-strong)] bg-bg-panel p-5">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <div className="font-mono text-[11px] font-semibold uppercase tracking-[0.14em] text-warning">Contraseña del demo público</div>
+          <div className="mt-1 font-mono text-[10px] text-text-faint">para <span className="text-accent">senttra.com/demo</span> · cambiarla desconecta a quien tenga la anterior</div>
+        </div>
+        {state === "ok" && <span className="font-mono text-[11px] text-accent">✓ Guardada</span>}
+        {state === "err" && <span className="font-mono text-[11px] text-danger">Error (mín. 4 caracteres)</span>}
+      </div>
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        <div className="relative">
+          <input type={show ? "text" : "password"} value={val} onChange={(e) => { setVal(e.target.value); setState("idle"); }}
+            placeholder={cur === null ? "cargando…" : "nueva contraseña"}
+            className="w-[220px] rounded-lg border border-[var(--border)] bg-bg-input py-2.5 pl-3.5 pr-16 font-mono text-sm text-text outline-none focus:border-accent" />
+          <button type="button" onClick={() => setShow((s) => !s)}
+            className="absolute right-2 top-1/2 -translate-y-1/2 font-mono text-[10px] uppercase tracking-[0.1em] text-text-faint hover:text-accent">{show ? "ocultar" : "ver"}</button>
+        </div>
+        <button onClick={save} disabled={!changed || state === "saving"}
+          className={`rounded-lg border px-3.5 py-2.5 font-mono text-[11px] transition-colors ${changed ? "border-accent text-accent hover:bg-[#123a2a]" : "border-[var(--border)] text-text-faint"}`}>
+          {state === "saving" ? "Guardando…" : "Cambiar contraseña"}
+        </button>
+      </div>
+    </div>
   );
 }
 
