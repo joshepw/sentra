@@ -256,9 +256,9 @@ export function TrafficViewer({ token, admin = false }: { token: string; admin?:
       {/* MAPA REAL (calles de SPS) */}
       <CorridorMap cams={data.cams} sel={sel} onPick={pickCam} admin={admin} api={API} token={token} />
 
-      <div className="mb-4 space-y-4">
+      <div className="mb-4 flex flex-col gap-4 lg:flex-row">
         {/* DETECCIÓN */}
-        <div className="overflow-hidden rounded-2xl border border-[var(--border-strong)] bg-bg-panel p-5">
+        <div className="min-w-0 overflow-hidden rounded-2xl border border-[var(--border-strong)] bg-bg-panel p-5 lg:flex-[2.4]">
           <div className="mb-3.5 flex flex-wrap items-center justify-between gap-3">
             <div className="font-mono text-[11px] font-semibold uppercase tracking-[0.14em] text-text-muted">Detección anotada · {cam.nombre}</div>
             <div className="flex gap-2">
@@ -292,7 +292,7 @@ export function TrafficViewer({ token, admin = false }: { token: string; admin?:
         </div>
 
         {/* INFRACCIONES */}
-        <div className="flex flex-col overflow-hidden rounded-2xl border border-[var(--border-strong)] bg-bg-panel">
+        <div className="flex min-w-0 flex-col overflow-hidden rounded-2xl border border-[var(--border-strong)] bg-bg-panel lg:flex-1">
           <div className="flex items-center justify-between border-b border-[var(--border)] px-5 py-4">
             <div className="font-mono text-[11px] font-semibold uppercase tracking-[0.14em] text-text-muted">
               Infracciones ·<br />giros y cruces en rojo
