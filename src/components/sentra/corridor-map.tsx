@@ -22,11 +22,16 @@ export function CorridorMap({ cams, sel, onPick, admin, api, token }: {
   admin: boolean; api: string; token: string;
 }) {
   const svgRef = useRef<SVGSVGElement>(null);
+  const gRef = useRef<SVGGElement>(null);
   const [layout, setLayout] = useState<Record<string, MapPin>>(MAP.camDefaults);
   const [hover, setHover] = useState<string | null>(null);
   const [drag, setDrag] = useState<{ id: string; mode: "move" | "rot" } | null>(null);
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState<"idle" | "saving" | "ok">("idle");
+  // viewport: encuadre movible (pan) + zoom del mapa. k=escala, tx/ty=desplazamiento en unidades viewBox.
+  const [view, setView] = useState({ k: 1, tx: 0, ty: 0 });
+  const pan = useRef<{ x: number; y: number } | null>(null);
+  const [panning, setPanning] = useState(false);
 
   // Cargar el layout guardado (posiciones/ángulos que el admin ajustó) y fusionar sobre los defaults.
   useEffect(() => {
@@ -40,14 +45,27 @@ export function CorridorMap({ cams, sel, onPick, admin, api, token }: {
 
   const pin = (id: string) => layout[id] ?? MAP.camDefaults[id] ?? DEFAULT_PIN;
 
+  // coords locales del grupo transformado (= coords viewBox donde viven los pines), para arrastrar pines
   const toUser = useCallback((clientX: number, clientY: number) => {
-    const svg = svgRef.current; if (!svg) return null;
-    const ctm = svg.getScreenCTM(); if (!ctm) return null;
+    const g = gRef.current; const ctm = g?.getScreenCTM(); if (!ctm) return null;
+    const p = new DOMPoint(clientX, clientY).matrixTransform(ctm.inverse());
+    return { x: p.x, y: p.y };
+  }, []);
+  // coords en el espacio del viewBox (antes del transform del grupo), para zoom hacia el cursor
+  const toSvg = useCallback((clientX: number, clientY: number) => {
+    const svg = svgRef.current; const ctm = svg?.getScreenCTM(); if (!ctm) return null;
     const p = new DOMPoint(clientX, clientY).matrixTransform(ctm.inverse());
     return { x: p.x, y: p.y };
   }, []);
 
   const onMove = useCallback((e: React.PointerEvent) => {
+    if (pan.current) {   // arrastrando el mapa (encuadre)
+      const svg = svgRef.current; const s = svg?.getScreenCTM()?.a || 1;   // px pantalla por unidad viewBox
+      const dx = (e.clientX - pan.current.x) / s, dy = (e.clientY - pan.current.y) / s;
+      pan.current = { x: e.clientX, y: e.clientY };
+      setView((v) => ({ ...v, tx: v.tx + dx, ty: v.ty + dy }));
+      return;
+    }
     if (!drag) return;
     const u = toUser(e.clientX, e.clientY); if (!u) return;
     setLayout((L) => {
@@ -63,8 +81,36 @@ export function CorridorMap({ cams, sel, onPick, admin, api, token }: {
   }, [drag, toUser]);
 
   const endDrag = useCallback((e: React.PointerEvent) => {
+    if (pan.current) { pan.current = null; setPanning(false); try { (e.target as Element).releasePointerCapture?.(e.pointerId); } catch {} }
     if (drag) { try { (e.target as Element).releasePointerCapture?.(e.pointerId); } catch {} setDrag(null); }
   }, [drag]);
+
+  // empezar a mover el mapa (pointerdown en el fondo, no en un pin)
+  const startPan = (e: React.PointerEvent) => {
+    pan.current = { x: e.clientX, y: e.clientY }; setPanning(true);
+    try { (e.currentTarget as Element).setPointerCapture?.(e.pointerId); } catch {}
+  };
+
+  const zoomAt = useCallback((cx: number, cy: number, factor: number) => {
+    setView((v) => {
+      const k = Math.min(8, Math.max(1, v.k * factor));
+      const rf = k / v.k;
+      return { k, tx: cx - rf * (cx - v.tx), ty: cy - rf * (cy - v.ty) };
+    });
+  }, []);
+  const resetView = () => setView({ k: 1, tx: 0, ty: 0 });
+
+  // zoom con rueda hacia el cursor (listener no-pasivo para poder preventDefault)
+  useEffect(() => {
+    const svg = svgRef.current; if (!svg) return;
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      const c = toSvg(e.clientX, e.clientY); if (!c) return;
+      zoomAt(c.x, c.y, e.deltaY < 0 ? 1.18 : 1 / 1.18);
+    };
+    svg.addEventListener("wheel", onWheel, { passive: false });
+    return () => svg.removeEventListener("wheel", onWheel);
+  }, [toSvg, zoomAt]);
 
   const start = (id: string, mode: "move" | "rot") => (e: React.PointerEvent) => {
     if (!admin) return;
@@ -105,8 +151,9 @@ export function CorridorMap({ cams, sel, onPick, admin, api, token }: {
       </div>
 
       <div className="relative bg-[#07130e]">
-        <svg ref={svgRef} viewBox={`0 0 ${VW} ${VH}`} className="block h-auto w-full select-none"
-          style={{ touchAction: "none" }} onPointerMove={onMove} onPointerUp={endDrag} onPointerLeave={endDrag}>
+        <svg ref={svgRef} viewBox={`0 0 ${VW} ${VH}`} className={`block h-auto w-full select-none ${panning ? "cursor-grabbing" : "cursor-grab"}`}
+          style={{ touchAction: "none" }} onPointerDown={startPan} onPointerMove={onMove} onPointerUp={endDrag} onPointerLeave={endDrag}>
+          <g ref={gRef} transform={`translate(${view.tx} ${view.ty}) scale(${view.k})`}>
           {/* calles reales */}
           {(["minor", "major", "corridor"] as const).map((c) =>
             MAP.streets.filter((s) => s.c === c).map((s, i) => (
@@ -158,7 +205,23 @@ export function CorridorMap({ cams, sel, onPick, admin, api, token }: {
               </g>
             );
           })}
+          </g>
         </svg>
+
+        {/* controles de zoom / encuadre */}
+        <div className="absolute bottom-3 right-3 flex flex-col gap-1.5">
+          {([["+", () => zoomAt(VW / 2, VH / 2, 1.4)], ["−", () => zoomAt(VW / 2, VH / 2, 1 / 1.4)]] as const).map(([lbl, fn]) => (
+            <button key={lbl} onClick={fn} aria-label={lbl === "+" ? "acercar" : "alejar"}
+              className="grid size-8 place-items-center rounded-lg border border-[var(--border-strong)] bg-[rgba(8,20,17,0.8)] font-mono text-base text-text-muted backdrop-blur-sm transition-colors hover:text-accent">{lbl}</button>
+          ))}
+          {(view.k !== 1 || view.tx !== 0 || view.ty !== 0) && (
+            <button onClick={resetView} aria-label="restablecer encuadre"
+              className="grid size-8 place-items-center rounded-lg border border-[var(--border-strong)] bg-[rgba(8,20,17,0.8)] font-mono text-[13px] text-text-muted backdrop-blur-sm transition-colors hover:text-accent">⟲</button>
+          )}
+        </div>
+        {panning || view.k > 1 ? null : (
+          <div className="pointer-events-none absolute bottom-3 left-3 font-mono text-[9px] uppercase tracking-[0.14em] text-text-faint">arrastrá para mover · rueda para zoom</div>
+        )}
       </div>
 
       <div className="flex items-center gap-2 border-t border-[var(--border)] px-5 py-3.5">
