@@ -205,6 +205,48 @@ export function TrafficViewer({ token, admin = false }: { token: string; admin?:
   const infByHour = cam.infr.reduce<Record<string, number>>((a, v) => { a[v.hh] = (a[v.hh] ?? 0) + 1; return a; }, {});
   const marcadas = admin ? cam.infr.filter((v) => v.key && reviews[v.key]?.verdict).length : 0;
 
+  // una fila de infracción (reutilizada por las dos secciones: maniobras / rojos)
+  const infrRow = (v: Infr) => {
+    const rojo = v.kind === "rojo";
+    const label = rojo ? "Cruce en rojo" : v.kind === "uturn" ? "Vuelta en U" : "Giro indebido";
+    const tag = rojo ? "ROJO" : v.kind === "uturn" ? "U" : "GIRO";
+    const rev = v.key ? reviews[v.key] : undefined;
+    const vColor = rev?.verdict === "correcta" ? "border-accent" : rev?.verdict === "incorrecta" ? "border-danger" : rev?.verdict === "dudosa" ? "border-warning" : "border-transparent";
+    return (
+      <div key={v.key ?? `${v.kind}:${v.id}:${v.hh}`} className={`border-b border-[var(--border)] ${admin ? `border-l-2 ${vColor}` : ""}`}>
+        <button onClick={() => jump(v)}
+          className="flex w-full cursor-pointer items-center gap-3 px-5 py-3 text-left transition-colors hover:bg-bg-card active:translate-y-px">
+          <span className={`flex size-[34px] shrink-0 items-center justify-center rounded-md border border-[var(--border)] font-mono text-[9px] font-bold ${rojo ? "bg-[#2a0f14] text-[#ff8598]" : "bg-[#2a1512] text-danger"}`}>{tag}</span>
+          <span className="min-w-0 flex-1">
+            <span className="block text-[13px] font-semibold text-danger">{label}</span>
+            <span className="mt-1 block font-mono text-[10px] text-text-muted">#{v.id} {v.tipo ?? ""}</span>
+          </span>
+          <span className="shrink-0 font-mono text-[11px] text-accent">{v.hh}:00 +{Math.round(v.t)}s</span>
+        </button>
+        {admin && (
+          <div className="px-5 pb-3.5">
+            {v.why && <p className="mb-2 rounded-md bg-bg-card px-2.5 py-2 font-mono text-[10px] leading-relaxed text-text-muted">↳ {v.why}</p>}
+            <div className="flex flex-wrap gap-1.5">
+              {VERDICTS.map((vd) => (
+                <button key={vd.k} onClick={() => postReview(v, { verdict: vd.k })}
+                  className={`cursor-pointer rounded-md border px-2.5 py-1 font-mono text-[10px] transition-colors ${rev?.verdict === vd.k ? vd.on : "border-[var(--border)] bg-bg-input text-text-faint hover:border-text-muted"}`}>
+                  {vd.label}
+                </button>
+              ))}
+            </div>
+            <input
+              value={rev?.reason ?? ""}
+              placeholder="motivo / nota para corregir…"
+              onChange={(e) => v.key && setReviews((s) => ({ ...s, [v.key!]: { verdict: s[v.key!]?.verdict ?? "", reason: e.target.value } }))}
+              onBlur={() => postReview(v, {})}
+              className="mt-2 w-full rounded-md border border-[var(--border)] bg-bg-input px-2.5 py-1.5 font-mono text-[11px] text-text outline-none placeholder:text-text-faint focus:border-accent"
+            />
+          </div>
+        )}
+      </div>
+    );
+  };
+
   return (
     <Shell wide admin={admin}>
       {admin && <DemoPassPanel api={API} token={token} />}
@@ -302,46 +344,21 @@ export function TrafficViewer({ token, admin = false }: { token: string; admin?:
           <div className={admin ? "max-h-[560px] overflow-y-auto" : "max-h-[430px] overflow-y-auto"}>
             {cam.infr.length === 0 ? (
               <p className="p-5 text-xs text-text-faint">{cam.giros_ok || cam.rojo_ok ? "Sin infracciones detectadas." : "Ángulo en solo conteo."}</p>
-            ) : cam.infr.map((v, idx) => {
-              const rojo = v.kind === "rojo";
-              const label = rojo ? "Cruce en rojo" : v.kind === "uturn" ? "Vuelta en U" : "Giro indebido";
-              const tag = rojo ? "ROJO" : v.kind === "uturn" ? "U" : "GIRO";
-              const rev = v.key ? reviews[v.key] : undefined;
-              const vColor = rev?.verdict === "correcta" ? "border-accent" : rev?.verdict === "incorrecta" ? "border-danger" : rev?.verdict === "dudosa" ? "border-warning" : "border-transparent";
+            ) : ([
+              { key: "man", title: "Giros indebidos y vueltas en U", match: (v: Infr) => v.kind === "giro" || v.kind === "uturn" },
+              { key: "rojo", title: "Cruces en rojo", match: (v: Infr) => v.kind === "rojo" },
+            ].map((g) => {
+              const items = cam.infr.filter(g.match);
+              if (!items.length) return null;
               return (
-                <div key={idx} className={`border-b border-[var(--border)] ${admin ? `border-l-2 ${vColor}` : ""}`}>
-                  <button onClick={() => jump(v)}
-                    className="flex w-full cursor-pointer items-center gap-3 px-5 py-3 text-left transition-colors hover:bg-bg-card active:translate-y-px">
-                    <span className={`flex size-[34px] shrink-0 items-center justify-center rounded-md border border-[var(--border)] font-mono text-[9px] font-bold ${rojo ? "bg-[#2a0f14] text-[#ff8598]" : "bg-[#2a1512] text-danger"}`}>{tag}</span>
-                    <span className="min-w-0 flex-1">
-                      <span className="block text-[13px] font-semibold text-danger">{label}</span>
-                      <span className="mt-1 block font-mono text-[10px] text-text-muted">#{v.id} {v.tipo ?? ""}</span>
-                    </span>
-                    <span className="shrink-0 font-mono text-[11px] text-accent">{v.hh}:00 +{Math.round(v.t)}s</span>
-                  </button>
-                  {admin && (
-                    <div className="px-5 pb-3.5">
-                      {v.why && <p className="mb-2 rounded-md bg-bg-card px-2.5 py-2 font-mono text-[10px] leading-relaxed text-text-muted">↳ {v.why}</p>}
-                      <div className="flex flex-wrap gap-1.5">
-                        {VERDICTS.map((vd) => (
-                          <button key={vd.k} onClick={() => postReview(v, { verdict: vd.k })}
-                            className={`cursor-pointer rounded-md border px-2.5 py-1 font-mono text-[10px] transition-colors ${rev?.verdict === vd.k ? vd.on : "border-[var(--border)] bg-bg-input text-text-faint hover:border-text-muted"}`}>
-                            {vd.label}
-                          </button>
-                        ))}
-                      </div>
-                      <input
-                        value={rev?.reason ?? ""}
-                        placeholder="motivo / nota para corregir…"
-                        onChange={(e) => v.key && setReviews((s) => ({ ...s, [v.key!]: { verdict: s[v.key!]?.verdict ?? "", reason: e.target.value } }))}
-                        onBlur={() => postReview(v, {})}
-                        className="mt-2 w-full rounded-md border border-[var(--border)] bg-bg-input px-2.5 py-1.5 font-mono text-[11px] text-text outline-none placeholder:text-text-faint focus:border-accent"
-                      />
-                    </div>
-                  )}
+                <div key={g.key}>
+                  <div className="sticky top-0 z-10 flex items-center justify-between border-b border-[var(--border)] bg-bg-panel px-5 py-2.5 font-mono text-[10px] font-semibold uppercase tracking-[0.14em] text-text-muted">
+                    <span>{g.title}</span><span className="text-danger">{items.length}</span>
+                  </div>
+                  {items.map(infrRow)}
                 </div>
               );
-            })}
+            }))}
           </div>
         </div>
       </div>
