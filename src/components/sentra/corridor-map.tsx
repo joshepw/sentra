@@ -31,6 +31,7 @@ export function CorridorMap({ cams, sel, onPick, admin, api, token }: {
   // viewport: encuadre movible (pan) + zoom del mapa. k=escala, tx/ty=desplazamiento en unidades viewBox.
   const [view, setView] = useState({ k: 1, tx: 0, ty: 0 });
   const pan = useRef<{ x: number; y: number } | null>(null);
+  const down = useRef<{ x: number; y: number; id: number } | null>(null);   // pointerdown pendiente (pan solo tras mover)
   const [panning, setPanning] = useState(false);
 
   // Cargar el layout guardado (posiciones/ángulos que el admin ajustó) y fusionar sobre los defaults.
@@ -66,6 +67,14 @@ export function CorridorMap({ cams, sel, onPick, admin, api, token }: {
       setView((v) => ({ ...v, tx: v.tx + dx, ty: v.ty + dy }));
       return;
     }
+    // pan diferido: solo empieza si el puntero se movió >5px (así un clic simple selecciona la cámara)
+    if (down.current && !drag) {
+      if (Math.hypot(e.clientX - down.current.x, e.clientY - down.current.y) > 5) {
+        pan.current = { x: e.clientX, y: e.clientY }; setPanning(true);
+        try { svgRef.current?.setPointerCapture?.(down.current.id); } catch {}
+      }
+      return;
+    }
     if (!drag) return;
     const u = toUser(e.clientX, e.clientY); if (!u) return;
     setLayout((L) => {
@@ -81,15 +90,14 @@ export function CorridorMap({ cams, sel, onPick, admin, api, token }: {
   }, [drag, toUser]);
 
   const endDrag = useCallback((e: React.PointerEvent) => {
+    down.current = null;
     if (pan.current) { pan.current = null; setPanning(false); try { (e.target as Element).releasePointerCapture?.(e.pointerId); } catch {} }
     if (drag) { try { (e.target as Element).releasePointerCapture?.(e.pointerId); } catch {} setDrag(null); }
   }, [drag]);
 
-  // empezar a mover el mapa (pointerdown en el fondo, no en un pin)
-  const startPan = (e: React.PointerEvent) => {
-    pan.current = { x: e.clientX, y: e.clientY }; setPanning(true);
-    try { (e.currentTarget as Element).setPointerCapture?.(e.pointerId); } catch {}
-  };
+  // pointerdown en el mapa: registra el inicio; el pan real arranca en onMove tras mover >5px.
+  // Un clic sin mover NO captura el puntero → el onClick del pin selecciona la cámara.
+  const startPan = (e: React.PointerEvent) => { down.current = { x: e.clientX, y: e.clientY, id: e.pointerId }; };
 
   const zoomAt = useCallback((cx: number, cy: number, factor: number) => {
     setView((v) => {
