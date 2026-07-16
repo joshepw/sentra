@@ -203,8 +203,6 @@ export function TrafficViewer({ token, admin = false }: { token: string; admin?:
   const hoursList = Array.from({ length: 24 }, (_, h) => hh2(h));
   const anyHour = (hk: string) => data.cams.some((c) => c.hours[hk]);
   const infByHour = cam.infr.reduce<Record<string, number>>((a, v) => { a[v.hh] = (a[v.hh] ?? 0) + 1; return a; }, {});
-  const marcadas = admin ? cam.infr.filter((v) => v.key && reviews[v.key]?.verdict).length : 0;
-
   // una fila de infracción (reutilizada por las dos secciones: maniobras / rojos)
   const infrRow = (v: Infr) => {
     const rojo = v.kind === "rojo";
@@ -243,6 +241,25 @@ export function TrafficViewer({ token, admin = false }: { token: string; admin?:
             />
           </div>
         )}
+      </div>
+    );
+  };
+
+  // una sección de infracciones (card propia con scroll independiente)
+  const infrSection = (title: React.ReactNode, items: Infr[], emptyMsg: string) => {
+    const rev = admin ? items.filter((v) => v.key && reviews[v.key]?.verdict).length : 0;
+    return (
+      <div className="flex flex-col overflow-hidden rounded-2xl border border-[var(--border-strong)] bg-bg-panel">
+        <div className="flex items-center justify-between border-b border-[var(--border)] px-5 py-4">
+          <div className="font-mono text-[11px] font-semibold uppercase tracking-[0.14em] text-text-muted">
+            {title}
+            {admin && items.length > 0 && <span className="mt-1 block text-[9px] normal-case tracking-normal text-accent">{rev}/{items.length} revisadas</span>}
+          </div>
+          <div className="font-display text-[26px] font-extrabold text-danger">{items.length}</div>
+        </div>
+        <div className={admin ? "max-h-[440px] overflow-y-auto" : "max-h-[360px] overflow-y-auto"}>
+          {items.length === 0 ? <p className="p-5 text-xs text-text-faint">{emptyMsg}</p> : items.map(infrRow)}
+        </div>
       </div>
     );
   };
@@ -332,34 +349,14 @@ export function TrafficViewer({ token, admin = false }: { token: string; admin?:
           </div>
         </div>
 
-        {/* INFRACCIONES */}
-        <div className="flex min-w-0 flex-col overflow-hidden rounded-2xl border border-[var(--border-strong)] bg-bg-panel lg:flex-1">
-          <div className="flex items-center justify-between border-b border-[var(--border)] px-5 py-4">
-            <div className="font-mono text-[11px] font-semibold uppercase tracking-[0.14em] text-text-muted">
-              Infracciones ·<br />giros y cruces en rojo
-              {admin && <span className="mt-1 block text-[9px] normal-case tracking-normal text-accent">{marcadas}/{cam.infr.length} revisadas</span>}
-            </div>
-            <div className="font-display text-[26px] font-extrabold text-danger">{cam.infr.length}</div>
-          </div>
-          <div className={admin ? "max-h-[560px] overflow-y-auto" : "max-h-[430px] overflow-y-auto"}>
-            {cam.infr.length === 0 ? (
-              <p className="p-5 text-xs text-text-faint">{cam.giros_ok || cam.rojo_ok ? "Sin infracciones detectadas." : "Ángulo en solo conteo."}</p>
-            ) : ([
-              { key: "man", title: "Giros indebidos y vueltas en U", match: (v: Infr) => v.kind === "giro" || v.kind === "uturn" },
-              { key: "rojo", title: "Cruces en rojo", match: (v: Infr) => v.kind === "rojo" },
-            ].map((g) => {
-              const items = cam.infr.filter(g.match);
-              if (!items.length) return null;
-              return (
-                <div key={g.key}>
-                  <div className="sticky top-0 z-10 flex items-center justify-between border-b border-[var(--border)] bg-bg-panel px-5 py-2.5 font-mono text-[10px] font-semibold uppercase tracking-[0.14em] text-text-muted">
-                    <span>{g.title}</span><span className="text-danger">{items.length}</span>
-                  </div>
-                  {items.map(infrRow)}
-                </div>
-              );
-            }))}
-          </div>
+        {/* INFRACCIONES — dos secciones separadas, cada una con su scroll */}
+        <div className="flex min-w-0 flex-col gap-4 lg:flex-1">
+          {infrSection(<>Giros indebidos<br />y vueltas en U</>,
+            cam.infr.filter((v) => v.kind === "giro" || v.kind === "uturn"),
+            cam.giros_ok ? "Sin giros ni vueltas en U." : "Este ángulo no evalúa giros.")}
+          {infrSection("Cruces en rojo",
+            cam.infr.filter((v) => v.kind === "rojo"),
+            cam.rojo_ok ? "Sin cruces en rojo." : "Este ángulo no evalúa cruces en rojo.")}
         </div>
       </div>
 
