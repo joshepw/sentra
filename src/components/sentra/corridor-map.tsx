@@ -93,7 +93,7 @@ export function CorridorMap({ cams, sel, onPick, admin, api, token }: {
 
   const zoomAt = useCallback((cx: number, cy: number, factor: number) => {
     setView((v) => {
-      const k = Math.min(8, Math.max(1, v.k * factor));
+      const k = Math.min(8, Math.max(0.4, v.k * factor));   // permite alejar (0.4×) para llegar a calles lejanas
       const rf = k / v.k;
       return { k, tx: cx - rf * (cx - v.tx), ty: cy - rf * (cy - v.ty) };
     });
@@ -150,22 +150,28 @@ export function CorridorMap({ cams, sel, onPick, admin, api, token }: {
         )}
       </div>
 
-      <div className="relative bg-[#07130e]">
+      <div className="relative bg-[#081613]">
         <svg ref={svgRef} viewBox={`0 0 ${VW} ${VH}`} className={`block h-auto w-full select-none ${panning ? "cursor-grabbing" : "cursor-grab"}`}
           style={{ touchAction: "none" }} onPointerDown={startPan} onPointerMove={onMove} onPointerUp={endDrag} onPointerLeave={endDrag}>
+          <defs>
+            <filter id="corrGlow" x="-5%" y="-60%" width="110%" height="220%">
+              <feGaussianBlur stdDeviation="2.4" result="b" /><feMerge><feMergeNode in="b" /><feMergeNode in="SourceGraphic" /></feMerge>
+            </filter>
+          </defs>
           <g ref={gRef} transform={`translate(${view.tx} ${view.ty}) scale(${view.k})`}>
-          {/* calles reales */}
-          {(["minor", "major", "corridor"] as const).map((c) =>
-            MAP.streets.filter((s) => s.c === c).map((s, i) => (
-              <path key={`${c}${i}`} d={s.d} fill="none" strokeLinecap="round" strokeLinejoin="round"
-                stroke={c === "corridor" ? "#3dd68c" : c === "major" ? "#356b51" : "#1c3a2c"}
-                strokeWidth={c === "corridor" ? 4.4 : c === "major" ? 2.6 : 1.3}
-                strokeOpacity={c === "corridor" ? 0.95 : c === "major" ? 0.85 : 0.5} />
-            ))
-          )}
+          {/* calles reales — gris-verde claro para leer sobre el fondo; corredor con glow */}
+          {MAP.streets.filter((s) => s.c === "minor").map((s, i) => (
+            <path key={`mi${i}`} d={s.d} fill="none" strokeLinecap="round" strokeLinejoin="round" stroke="#586e63" strokeWidth={1.6} strokeOpacity={0.8} />
+          ))}
+          {MAP.streets.filter((s) => s.c === "major").map((s, i) => (
+            <path key={`ma${i}`} d={s.d} fill="none" strokeLinecap="round" strokeLinejoin="round" stroke="#84ad98" strokeWidth={2.9} strokeOpacity={0.92} />
+          ))}
+          {MAP.streets.filter((s) => s.c === "corridor").map((s, i) => (
+            <path key={`co${i}`} d={s.d} fill="none" strokeLinecap="round" strokeLinejoin="round" stroke="#3ee08f" strokeWidth={5.2} filter="url(#corrGlow)" />
+          ))}
           {/* etiquetas de avenidas */}
           {MAP.avLabels.map((a, i) => (
-            <text key={`av${i}`} x={a.x * VW} y={a.y * VH} fill="#54685c" fontFamily="var(--font-ibm-plex-mono), monospace" fontSize={10} textAnchor="middle">{a.t}av</text>
+            <text key={`av${i}`} x={a.x * VW} y={a.y * VH} fill="#8aa197" fontFamily="var(--font-ibm-plex-mono), monospace" fontSize={9} textAnchor="middle" className="pointer-events-none">{a.t}</text>
           ))}
           {/* pines de cámara */}
           {cams.map((c, i) => {
