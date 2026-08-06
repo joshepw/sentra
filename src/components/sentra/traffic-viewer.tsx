@@ -35,7 +35,7 @@ const VERDICTS = [
   { k: "dudosa", label: "~ Dudosa", on: "border-warning bg-[#2a2410] text-warning" },
 ] as const;
 
-export function TrafficViewer({ token, admin = false }: { token: string; admin?: boolean }) {
+export function TrafficViewer({ token, admin = false, api = API, label }: { token: string; admin?: boolean; api?: string; label?: string }) {
   const [data, setData] = useState<Dia | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [sel, setSel] = useState(0);
@@ -45,7 +45,7 @@ export function TrafficViewer({ token, admin = false }: { token: string; admin?:
   const [reviews, setReviews] = useState<Record<string, Rev>>({});
   const [det, setDet] = useState<Det | null>(null);   // det de la hora actual (para la galería)
 
-  const media = useCallback((p: string) => `${API}/data/${p}?k=${encodeURIComponent(token)}`, [token]);
+  const media = useCallback((p: string) => `${api}/data/${p}?k=${encodeURIComponent(token)}`, [token, api]);
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -64,7 +64,7 @@ export function TrafficViewer({ token, admin = false }: { token: string; admin?:
 
   // ---- carga inicial ----
   useEffect(() => {
-    fetch(`${API}/api/dia?k=${encodeURIComponent(token)}&_=${Date.now()}`)
+    fetch(`${api}/api/dia?k=${encodeURIComponent(token)}&_=${Date.now()}`)
       .then((r) => r.json())
       .then((d: Dia) => {
         setData(d);
@@ -75,14 +75,14 @@ export function TrafficViewer({ token, admin = false }: { token: string; admin?:
         setHour(cc.hours["09"] ? "09" : Object.keys(cc.hours)[0] ?? "09");
       })
       .catch((e) => setErr(String(e)));
-  }, [token]);
+  }, [token, api]);
 
   // ---- revisiones existentes (solo admin) ----
   useEffect(() => {
     if (!admin) return;
-    fetch(`${API}/api/reviews?k=${encodeURIComponent(token)}&_=${Date.now()}`)
+    fetch(`${api}/api/reviews?k=${encodeURIComponent(token)}&_=${Date.now()}`)
       .then((r) => r.json()).then((m: Record<string, Rev>) => setReviews(m ?? {})).catch(() => {});
-  }, [admin, token]);
+  }, [admin, token, api]);
 
   // ---- loop de dibujo único ----
   useEffect(() => {
@@ -189,15 +189,15 @@ export function TrafficViewer({ token, admin = false }: { token: string; admin?:
     const next: Rev = { verdict: patch.verdict ?? cur.verdict, reason: patch.reason ?? cur.reason };
     setReviews((s) => ({ ...s, [v.key!]: next }));
     try {
-      await fetch(`${API}/api/review?k=${encodeURIComponent(token)}`, {
+      await fetch(`${api}/api/review?k=${encodeURIComponent(token)}`, {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ key: v.key, cam: cam.id, kind: v.kind, id: v.id, hh: v.hh, ...next }),
       });
     } catch {}
   }, [reviews, cam, token]);
 
-  if (err) return <Shell admin={admin}><p className="rounded-xl border border-[var(--border-strong)] bg-bg-card p-4 font-mono text-sm text-text-muted">No se pudo cargar el backend: {err}</p></Shell>;
-  if (!data || !cam) return <Shell admin={admin}><p className="animate-sn-pulse font-mono text-sm text-text-muted">Cargando datos en vivo…</p></Shell>;
+  if (err) return <Shell admin={admin} label={label}><p className="rounded-xl border border-[var(--border-strong)] bg-bg-card p-4 font-mono text-sm text-text-muted">No se pudo cargar el backend: {err}</p></Shell>;
+  if (!data || !cam) return <Shell admin={admin} label={label}><p className="animate-sn-pulse font-mono text-sm text-text-muted">Cargando datos en vivo…</p></Shell>;
 
   const avg = Math.round(data.totales.veh / 24);
   const hoursList = Array.from({ length: 24 }, (_, h) => hh2(h));
@@ -265,8 +265,8 @@ export function TrafficViewer({ token, admin = false }: { token: string; admin?:
   };
 
   return (
-    <Shell wide admin={admin}>
-      {admin && <DemoPassPanel api={API} token={token} />}
+    <Shell wide admin={admin} label={label}>
+      {admin && <DemoPassPanel api={api} token={token} />}
       {/* KPIs */}
       <div className="mb-4 grid grid-cols-2 divide-[var(--border)] overflow-hidden rounded-2xl border border-[var(--border-strong)] bg-bg-panel lg:grid-cols-4 lg:divide-x">
         {[
@@ -283,7 +283,7 @@ export function TrafficViewer({ token, admin = false }: { token: string; admin?:
       </div>
 
       {/* MAPA REAL (calles de SPS) */}
-      <CorridorMap cams={data.cams} sel={sel} onPick={pickCam} admin={admin} api={API} token={token} />
+      <CorridorMap cams={data.cams} sel={sel} onPick={pickCam} admin={admin} api={api} token={token} />
 
       {/* selector de cámaras (lugares) — debajo del mapa */}
       <div className="mb-4 flex flex-wrap items-center gap-1.5 rounded-2xl border border-[var(--border-strong)] bg-bg-panel p-3">
@@ -671,14 +671,14 @@ function HourlyChart({ hoursList, hoursData, infByHour, current, onPick }: {
   );
 }
 
-function Shell({ children, wide = false, admin = false }: { children: React.ReactNode; wide?: boolean; admin?: boolean }) {
+function Shell({ children, wide = false, admin = false, label }: { children: React.ReactNode; wide?: boolean; admin?: boolean; label?: string }) {
   return (
     <div className="min-h-screen w-full bg-bg text-text">
       <header className="sticky top-0 z-50 flex items-center justify-between gap-4 border-b border-[var(--border)] bg-[rgba(8,20,17,0.9)] px-6 py-4 backdrop-blur-md">
         <Link href="/" className="flex items-center gap-2.5">
           <SentraLogoMark size={26} />
           <SentraWordmark />
-          <span className={`ml-1 font-mono text-[9px] font-bold uppercase tracking-[0.3em] ${admin ? "text-warning" : "text-accent"}`}>{admin ? "Revisión" : "Demo"}</span>
+          <span className={`ml-1 font-mono text-[9px] font-bold uppercase tracking-[0.3em] ${admin ? "text-warning" : "text-accent"}`}>{label ?? (admin ? "Revisión" : "Demo")}</span>
         </Link>
         <div className="text-right font-mono text-[11px] leading-relaxed text-text-faint">
           {admin ? <>Modo revisión · marcá cada infracción<br />se guarda para corregir el algoritmo</>
