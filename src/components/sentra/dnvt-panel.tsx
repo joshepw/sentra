@@ -63,6 +63,10 @@ type Expediente = {
   nombre: string; dni: string; licencia: string; direccion: string; telefono: string;
   previas: number;   // faltas previas en el año (para el recargo por reincidencia)
 };
+// el tipo de vehículo no siempre viene en `tipo`: el pipeline lo deja al final del `why`
+// ("… Vehículo: Auto."), de ahí se rescata para el expediente y la tabla
+const tipoDe = (f: Infr) => f.tipo ?? f.why?.match(/Vehículo:\s*([A-Za-zÁÉÍÓÚáéíóúñ]+)/)?.[1];
+
 const hashSeed = (s: string) => {
   let h = 2166136261;
   for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); }
@@ -95,7 +99,7 @@ function expedienteDe(f: Falta): Expediente {
   const r = mkRng(hashSeed(f.key ?? `${f.cam}:${f.kind}:${f.id}:${f.hh}`));
   const pick = <T,>(a: T[]) => a[Math.floor(r() * a.length)];
   const dig = (n: number) => String(Math.floor(r() * 10 ** n)).padStart(n, "0");
-  const tipo = f.tipo ?? "Auto";
+  const tipo = tipoDe(f) ?? "Auto";
   const pool = tipo === "Moto" ? MOTOS : tipo === "Bus" ? BUSES : tipo === "Camión" ? CAMIONES : AUTOS;
   const pref = tipo === "Moto" ? "M" : tipo === "Bus" ? "A" : tipo === "Camión" ? "C" : pick(["H", "P"]);
   const [marca, modelo] = pick(pool);
@@ -128,9 +132,9 @@ function Placa({ placa, size = 1 }: { placa: string; size?: number }) {
       style={{ width: w, height: h, borderRadius: w * 0.055, border: `${Math.max(1, w * 0.014)}px solid #1c1c1c`, boxShadow: "inset 0 0 0 1px rgba(0,0,0,.10), 0 1px 2px rgba(0,0,0,.35)" }}>
       {/* banda superior */}
       <div className="absolute inset-x-0 top-0 flex items-center justify-center" style={{ height: h * 0.26, background: AZUL_PLACA }}>
-        <span style={{ color: "#fff", fontFamily: "Archivo, sans-serif", fontWeight: 800, fontSize: h * 0.15, letterSpacing: "0.16em", transform: "scaleY(1.1)" }}>HONDURAS</span>
-        <span className="absolute rounded-full bg-white/90" style={{ left: "24%", top: "30%", width: w * 0.05, height: h * 0.05 }} />
-        <span className="absolute rounded-full bg-white/90" style={{ right: "24%", top: "30%", width: w * 0.05, height: h * 0.05 }} />
+        <span style={{ color: "#fff", fontFamily: "Archivo, sans-serif", fontWeight: 800, fontSize: h * 0.135, letterSpacing: "0.14em", transform: "scaleY(1.1)" }}>HONDURAS</span>
+        <span className="absolute rounded-full bg-white/90" style={{ left: "20%", top: "32%", width: w * 0.042, height: h * 0.048 }} />
+        <span className="absolute rounded-full bg-white/90" style={{ right: "5%", top: "32%", width: w * 0.042, height: h * 0.048 }} />
       </div>
       {/* bandera */}
       <div className="absolute overflow-hidden" style={{ left: w * 0.02, top: h * 0.035, width: w * 0.15, height: h * 0.19, borderRadius: w * 0.012, border: "1px solid rgba(255,255,255,.75)" }}>
@@ -138,10 +142,10 @@ function Placa({ placa, size = 1 }: { placa: string; size?: number }) {
         <div className="flex items-center justify-center" style={{ height: "34%", background: "#fff", color: AZUL_PLACA, fontSize: h * 0.062, lineHeight: 1, letterSpacing: "0.08em" }}>★★★</div>
         <div style={{ height: "33%", background: AZUL_PLACA }} />
       </div>
-      {/* número */}
-      <div className="absolute inset-x-0 flex items-center justify-center" style={{ top: h * 0.24, height: h * 0.56 }}>
-        <span style={{ fontFamily: "Archivo, sans-serif", fontWeight: 900, fontSize: h * 0.44, letterSpacing: "0.005em", color: "#0d0d0d", transform: "scaleY(1.42)", whiteSpace: "nowrap" }}>
-          {letras}<span className="inline-block" style={{ width: w * 0.022 }} />{digitos}
+      {/* número — con margen blanco a los lados (no pegado al borde) */}
+      <div className="absolute flex items-center justify-center" style={{ top: h * 0.25, height: h * 0.54, left: w * 0.06, right: w * 0.06 }}>
+        <span style={{ fontFamily: "Archivo, sans-serif", fontWeight: 900, fontSize: h * 0.335, letterSpacing: "0.01em", color: "#0d0d0d", transform: "scaleY(1.5)", whiteSpace: "nowrap" }}>
+          {letras}<span className="inline-block" style={{ width: w * 0.03 }} />{digitos}
         </span>
       </div>
       {/* franja inferior */}
@@ -263,7 +267,7 @@ export function DnvtPanel({ token, api = API }: { token: string; api?: string })
     const rows = filtered.map((f) => {
       const exp = expedienteDe(f);
       return [
-        corr(f.n), data.fecha, horaDe(f), f.camName, KIND_LABEL[f.kind], f.tipo ?? "", f.id,
+        corr(f.n), data.fecha, horaDe(f), f.camName, KIND_LABEL[f.kind], tipoDe(f) ?? "", f.id,
         exp.placa, `${exp.marca} ${exp.modelo} ${exp.color}`, exp.nombre, exp.dni,
         estadoDe(f), (f.key && estados[f.key]?.nota) || "",
         qaDe(f) ? QA_BADGE[qaDe(f)!].label : "", f.why ?? "",
@@ -410,7 +414,7 @@ export function DnvtPanel({ token, api = API }: { token: string; api?: string })
                       </span>
                     </td>
                     <td className="px-4 py-2"><Placa placa={exp.placa} size={0.74} /></td>
-                    <td className="px-4 py-2.5 font-sans text-[12px] text-text-muted">{exp.marca} {exp.modelo} · {f.tipo ?? "—"} <span className="font-mono text-[10px] text-text-faint">#{f.id}</span></td>
+                    <td className="px-4 py-2.5 font-sans text-[12px] text-text-muted">{exp.marca} {exp.modelo} · {tipoDe(f) ?? "Auto"} <span className="font-mono text-[10px] text-text-faint">#{f.id}</span></td>
                     <td className={`px-4 py-2.5 font-mono text-[10.5px] ${qa ? QA_BADGE[qa].cls : "text-text-faint"}`}>{qa ? QA_BADGE[qa].label : "—"}</td>
                     <td className="px-4 py-2.5">
                       {est === "boleta" ? (
@@ -570,7 +574,7 @@ function EvidenceModal({ falta, media, fecha, estado, onBoleta, onDesestimar, on
               ctx.lineWidth = esLaFalta ? 3 : 1;
               ctx.strokeRect(x * sx, y * sy, w * sx, h * sy);
               if (esLaFalta) {
-                const lb = `${falta.tipo ?? TIPO[d.ids[id] ?? 2] ?? ""} #${id} ⚠`;
+                const lb = `${tipoDe(falta) ?? TIPO[d.ids[id] ?? 2] ?? ""} #${id} ⚠`;
                 ctx.font = "600 12px ui-monospace, monospace";
                 ctx.fillStyle = "#ff2f4d";
                 ctx.fillRect(x * sx - 1, y * sy - 18, ctx.measureText(lb).width + 10, 17);
@@ -601,7 +605,7 @@ function EvidenceModal({ falta, media, fecha, estado, onBoleta, onDesestimar, on
               Evidencia · <span className="text-text">{corr(falta.n)}</span> · {KIND_LABEL[falta.kind]}
             </div>
             <div className="mt-1 truncate font-mono text-[10.5px] text-text-faint">
-              {falta.camName} · {horaDe(falta)} · {falta.tipo ?? "vehículo"} #{falta.id}
+              {falta.camName} · {horaDe(falta)} · {tipoDe(falta) ?? "vehículo"} #{falta.id}
             </div>
           </div>
           <button onClick={onClose} className="cursor-pointer rounded-md border border-[var(--border)] px-2.5 py-1.5 font-mono text-[11px] text-text-muted transition-colors hover:border-danger hover:text-danger">✕ Cerrar</button>
