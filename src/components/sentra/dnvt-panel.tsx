@@ -226,8 +226,10 @@ export function DnvtPanel({ token, api = API }: { token: string; api?: string })
   const estadoDe = (f: Falta) => (f.key && estados[f.key]?.estado) || "pendiente";
   const qaDe = (f: Falta) => (f.key ? reviews[f.key]?.verdict : undefined);
 
-  // base = faltas visibles (post control de calidad); sobre esa base van KPIs y gráfico
-  const visibles = useMemo(() => faltas.filter((f) => conQA || qaDe(f) !== "incorrecta"),
+  // base = SOLO faltas validadas por control de calidad (el panel llega "listo para emitir");
+  // el toggle agrega las aún sin validar — las marcadas incorrectas jamás se muestran
+  const visibles = useMemo(() => faltas.filter((f) =>
+    conQA ? qaDe(f) !== "incorrecta" : qaDe(f) === "correcta"),
     [faltas, reviews, conQA]);   // eslint-disable-line react-hooks/exhaustive-deps
   const preHour = useMemo(() => {
     const q = busca.trim().toLowerCase().replace(/\s/g, "");
@@ -252,6 +254,80 @@ export function DnvtPanel({ token, api = API }: { token: string; api?: string })
     preHour.forEach((f) => { m[f.hh] = (m[f.hh] ?? 0) + 1; });
     return m;
   }, [preHour]);
+
+  // ---- fotitos: recorte del vehículo desde el video, en el navegador (canvas + video CORS).
+  // Se agrupan las filas visibles por (cámara, hora) para cargar UN video por grupo y se
+  // recorta la mejor caja del infractor cerca del momento de la falta. "" = sin foto.
+  const [thumbs, setThumbs] = useState<Record<string, string>>({});
+  const thumbsRef = useRef(thumbs); thumbsRef.current = thumbs;
+  const detCacheP = useRef<Map<string, Promise<Det | null>>>(new Map());
+  const getDet = useCallback((cam: string, hh: string) => {
+    const k = `${cam}/${hh}`;
+    if (!detCacheP.current.has(k))
+      detCacheP.current.set(k, fetch(media(`${cam}/det/${hh}.json`)).then((r) => r.json()).catch(() => null));
+    return detCacheP.current.get(k)!;
+  }, [media]);
+  const sliceKey = slice.map((f) => f.key).join(",");
+  useEffect(() => {
+    let cancelled = false;
+    const pend = slice.filter((f) => f.key && thumbsRef.current[f.key] === undefined);
+    if (!pend.length) return;
+    const video = document.createElement("video");
+    video.crossOrigin = "anonymous"; video.muted = true; video.preload = "auto";
+    const canvas = document.createElement("canvas");
+    const groups = new Map<string, Falta[]>();
+    pend.forEach((f) => { const k = `${f.cam}/${f.hh}`; if (!groups.has(k)) groups.set(k, []); groups.get(k)!.push(f); });
+    const seekTo = (t: number) => new Promise<void>((res) => {
+      const h = () => { video.removeEventListener("seeked", h); res(); };
+      video.addEventListener("seeked", h);
+      try { video.currentTime = t; } catch { video.removeEventListener("seeked", h); res(); }
+    });
+    (async () => {
+      for (const [gk, fs] of groups) {
+        if (cancelled) return;
+        const [cam, hh] = gk.split("/");
+        const det = await getDet(cam, hh);
+        const okLoad = await new Promise<boolean>((res) => {
+          const ok = () => { clean(); res(true); };
+          const bad = () => { clean(); res(false); };
+          const clean = () => { video.removeEventListener("loadeddata", ok); video.removeEventListener("error", bad); };
+          video.addEventListener("loadeddata", ok); video.addEventListener("error", bad);
+          video.src = media(`${cam}/video/${hh}.mp4`); video.load();
+        });
+        for (const f of fs) {
+          if (cancelled) return;
+          let url = "";
+          if (det && okLoad && video.videoWidth) {
+            const target = Math.round(f.t * det.fps);
+            let best: { slot: number; x: number; y: number; w: number; h: number; area: number } | null = null;
+            for (let sl = target - det.fps * 3; sl <= target + det.fps * 3; sl++) {
+              const arr = det.boxes[sl]; if (!arr) continue;
+              for (const [id, x, y, w, h] of arr) if (id === f.id) {
+                const area = w * h;
+                if (!best || area > best.area) best = { slot: sl, x, y, w, h, area };
+              }
+            }
+            if (best) {
+              await seekTo(best.slot / det.fps);
+              if (cancelled) return;
+              const sc = video.videoWidth / det.nw;
+              const pad = 0.25, bw = best.w * sc, bh = best.h * sc;
+              const cw = Math.max(8, bw * (1 + 2 * pad)), ch = Math.max(8, bh * (1 + 2 * pad));
+              const px = Math.max(0, best.x * sc - bw * pad), py = Math.max(0, best.y * sc - bh * pad);
+              const TW = 168, TH = Math.max(56, Math.round(TW * ch / cw));
+              canvas.width = TW; canvas.height = TH;
+              const ctx = canvas.getContext("2d");
+              if (ctx) { try { ctx.drawImage(video, px, py, cw, ch, 0, 0, TW, TH); url = canvas.toDataURL("image/jpeg", 0.75); } catch {} }
+            }
+          }
+          if (!cancelled) setThumbs((st) => ({ ...st, [f.key!]: url }));
+        }
+      }
+      video.removeAttribute("src"); video.load();
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sliceKey]);
 
   const postEstado = useCallback(async (f: Falta, patch: { estado?: string; nota?: string }) => {
     if (!f.key) return;
@@ -326,7 +402,7 @@ export function DnvtPanel({ token, api = API }: { token: string; api?: string })
       {/* KPIs del día */}
       <div className="mb-4 grid grid-cols-2 divide-[var(--border)] overflow-hidden rounded-2xl border border-[var(--border-strong)] bg-bg-panel sm:grid-cols-3 lg:grid-cols-5 lg:divide-x">
         {[
-          { v: nf(visibles.length), l: "Faltas del día", c: "text-danger" },
+          { v: nf(visibles.length), l: "Faltas validadas", c: "text-danger" },
           { v: String(visibles.filter((f) => f.kind !== "rojo").length), l: "Giros y vueltas en U", c: "text-text" },
           { v: String(visibles.filter((f) => f.kind === "rojo").length), l: "Cruces en rojo", c: "text-text" },
           { v: String(nBoletas), l: "Boletas emitidas", c: "text-accent" },
@@ -386,7 +462,7 @@ export function DnvtPanel({ token, api = API }: { token: string; api?: string })
         </label>
         <button onClick={() => setConQA((s) => !s)} className="flex items-center gap-2.5 py-2.5 font-sans text-[13px] text-text">
           <span className={`grid size-4 place-items-center rounded border ${conQA ? "border-warning bg-warning text-[#081411]" : "border-[var(--border-strong)]"}`}>{conQA ? "✓" : ""}</span>
-          Incluir descartadas por control de calidad
+          Incluir faltas aún sin validar
         </button>
         <button onClick={() => { setFCam("all"); setFKind("all"); setFEstado("all"); setFHour("all"); setBusca(""); setConQA(false); }}
           className="py-2.5 font-sans text-[13px] text-text-muted transition-colors hover:text-accent">Limpiar</button>
@@ -403,7 +479,7 @@ export function DnvtPanel({ token, api = API }: { token: string; api?: string })
           <table className="w-full min-w-[1080px] border-collapse text-left">
             <thead>
               <tr className="border-b border-[var(--border)] font-mono text-[9px] uppercase tracking-[0.14em] text-text-faint">
-                {["Nº", "Hora", "Cámara / cruce", "Falta", "Placa*", "Vehículo", "Calidad", "Estado DNVT", ""].map((h, i) => (
+                {["Nº", "Hora", "Cámara / cruce", "Falta", "Placa*", "Foto", "Calidad", "Estado DNVT", ""].map((h, i) => (
                   <th key={i} className="px-4 py-3 font-medium">{h}</th>
                 ))}
               </tr>
@@ -425,7 +501,19 @@ export function DnvtPanel({ token, api = API }: { token: string; api?: string })
                       </span>
                     </td>
                     <td className="px-4 py-2"><Placa placa={exp.placa} size={0.74} /></td>
-                    <td className="px-4 py-2.5 font-sans text-[12px] text-text-muted">{exp.marca} {exp.modelo} · {tipoDe(f) ?? "Auto"} <span className="font-mono text-[10px] text-text-faint">#{f.id}</span></td>
+                    <td className="px-4 py-2">
+                      <button onClick={() => setModal({ tipo: "evidencia", falta: f })} title="Ver evidencia"
+                        className="block cursor-pointer overflow-hidden rounded-md border border-[var(--border)] bg-bg-card transition-colors hover:border-accent">
+                        {f.key && thumbs[f.key] ? (
+                          /* eslint-disable-next-line @next/next/no-img-element */
+                          <img src={thumbs[f.key]} alt="Vehículo captado" className="h-[52px] w-[92px] object-cover" />
+                        ) : f.key && thumbs[f.key] === "" ? (
+                          <div className="flex h-[52px] w-[92px] items-center justify-center font-mono text-[9px] text-text-faint">sin foto</div>
+                        ) : (
+                          <div className="h-[52px] w-[92px] animate-sn-pulse" />
+                        )}
+                      </button>
+                    </td>
                     <td className={`px-4 py-2.5 font-mono text-[10.5px] ${qa ? QA_BADGE[qa].cls : "text-text-faint"}`}>{qa ? QA_BADGE[qa].label : "—"}</td>
                     <td className="px-4 py-2.5">
                       {est === "boleta" ? (
