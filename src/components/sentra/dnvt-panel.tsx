@@ -36,7 +36,7 @@ type Estado = { estado: string; nota: string; ts?: number };
 const KIND_LABEL: Record<string, string> = { giro: "Giro indebido", uturn: "Vuelta en U", rojo: "Cruce en rojo" };
 const KIND_TAG: Record<string, string> = { giro: "GIRO", uturn: "U", rojo: "ROJO" };
 const ESTADOS = [
-  { k: "boleta", label: "Boleta emitida", on: "border-accent bg-[#123a2a] text-accent" },
+  { k: "boleta", label: "Sanción aplicada", on: "border-accent bg-[#123a2a] text-accent" },
   { k: "desestimada", label: "Desestimada", on: "border-danger bg-[#2a1512] text-danger" },
   { k: "pendiente", label: "Pendiente", on: "border-[var(--border-strong)] bg-bg-input text-text" },
 ] as const;
@@ -293,28 +293,34 @@ export function DnvtPanel({ token, api = API }: { token: string; api?: string })
     void postEstado(f, { estado: "boleta", nota: `${boletaNum(data.fecha, f.n)} · ${lps(multaDe(exp))} · placa ${exp.placa}` });
   }, [data, postEstado]);
 
-  const exportCsv = () => {
+  // "Aplicar todas": sanciona en lote todas las faltas filtradas que siguen pendientes.
+  // Doble clic de confirmación (sin diálogos del navegador) y un solo POST al backend.
+  const [bulk, setBulk] = useState<"idle" | "confirm" | "busy" | "done">("idle");
+  const pendientes = filtered.filter((f) => f.key && estadoDe(f) === "pendiente");
+  const aplicarTodas = useCallback(async () => {
     if (!data) return;
-    const esc = (s: unknown) => `"${String(s ?? "").replace(/"/g, '""')}"`;
-    const rows = filtered.map((f) => {
+    const pend = filtered.filter((f) => f.key && estadoDe(f) === "pendiente");
+    if (!pend.length) { setBulk("idle"); return; }
+    setBulk("busy");
+    const items = pend.map((f) => {
       const exp = expedienteDe(f);
-      return [
-        corr(f.n), data.fecha, horaDe(f), f.camName, KIND_LABEL[f.kind], tipoDe(f) ?? "", f.id,
-        exp.placa, exp.nombre, exp.dni,
-        estadoDe(f), (f.key && estados[f.key]?.nota) || "",
-        qaDe(f) ? QA_BADGE[qaDe(f)!].label : "", f.why ?? "",
-      ].map(esc).join(",");
+      return { key: f.key!, cam: f.cam, kind: f.kind, id: f.id, hh: f.hh, estado: "boleta",
+        nota: `${boletaNum(data.fecha, f.n)} · ${lps(multaDe(exp))} · placa ${exp.placa}` };
     });
-    const head = ["correlativo", "fecha", "hora", "camara", "falta", "vehiculo", "id_vehiculo",
-      "placa_FICTICIA", "propietario_FICTICIO", "dni_FICTICIO",
-      "estado_dnvt", "nota", "control_calidad", "motivo_deteccion"].join(",");
-    const blob = new Blob(["﻿" + [head, ...rows].join("\n")], { type: "text/csv;charset=utf-8" });
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
-    a.download = `faltas_dnvt_${data.fecha}.csv`;
-    a.click();
-    URL.revokeObjectURL(a.href);
-  };
+    setEstados((s) => {
+      const n = { ...s };
+      items.forEach((it) => { n[it.key] = { estado: "boleta", nota: it.nota }; });
+      return n;
+    });
+    try {
+      await fetch(`${api}/api/dnvt-status-bulk?k=${encodeURIComponent(token)}`, {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ items }),
+      });
+    } catch {}
+    setBulk("done");
+    setTimeout(() => setBulk("idle"), 2600);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data, filtered, estados, api, token]);
 
   if (err) return <DnvtShell><p className="rounded-xl border border-[var(--border-strong)] bg-bg-card p-4 font-mono text-sm text-text-muted">No se pudo cargar el backend: {err}</p></DnvtShell>;
   if (!data) return <DnvtShell><p className="animate-sn-pulse font-mono text-sm text-text-muted">Cargando registro del día…</p></DnvtShell>;
@@ -333,15 +339,9 @@ export function DnvtPanel({ token, api = API }: { token: string; api?: string })
           <div className="mt-2 font-display text-[26px] font-extrabold capitalize leading-tight text-text">{fecha}</div>
           <div className="mt-1 font-mono text-[11px] text-text-faint">{data.totales.n_cams} cámaras · corredor 1a Calle / Bulevar Morazán · San Pedro Sula</div>
         </div>
-        <div className="flex flex-col items-end gap-2">
-          <button onClick={exportCsv}
-            className="cursor-pointer rounded-lg border border-accent px-4 py-2.5 font-mono text-[12px] font-semibold text-accent transition-colors hover:bg-[#123a2a]">
-            ⬇ Exportar CSV ({nf(filtered.length)})
-          </button>
-          <span className="rounded-md border border-warning/40 bg-[#2a2410] px-2.5 py-1 font-mono text-[9px] font-bold uppercase tracking-[0.14em] text-warning">
-            Demo · placas y personas ficticias
-          </span>
-        </div>
+        <span className="rounded-md border border-warning/40 bg-[#2a2410] px-2.5 py-1 font-mono text-[9px] font-bold uppercase tracking-[0.14em] text-warning">
+          Demo · placas y personas ficticias
+        </span>
       </div>
 
       {/* KPIs del día */}
@@ -350,7 +350,7 @@ export function DnvtPanel({ token, api = API }: { token: string; api?: string })
           { v: nf(visibles.length), l: "Faltas validadas", c: "text-danger" },
           { v: String(visibles.filter((f) => f.kind !== "rojo").length), l: "Giros y vueltas en U", c: "text-text" },
           { v: String(visibles.filter((f) => f.kind === "rojo").length), l: "Cruces en rojo", c: "text-text" },
-          { v: String(nBoletas), l: "Boletas emitidas", c: "text-accent" },
+          { v: String(nBoletas), l: "Sanciones aplicadas", c: "text-accent" },
           { v: String(nDesest), l: "Desestimadas", c: "text-text-muted" },
         ].map((k) => (
           <div key={k.l} className="p-5">
@@ -397,7 +397,7 @@ export function DnvtPanel({ token, api = API }: { token: string; api?: string })
           <select value={fEstado} onChange={(e) => setFEstado(e.target.value)} className={selCls}>
             <option value="all">Todos</option>
             <option value="pendiente">Pendiente</option>
-            <option value="boleta">Boleta emitida</option>
+            <option value="boleta">Sanción aplicada</option>
             <option value="desestimada">Desestimada</option>
           </select>
         </label>
@@ -416,16 +416,23 @@ export function DnvtPanel({ token, api = API }: { token: string; api?: string })
 
       {/* tabla del registro */}
       <div className="overflow-hidden rounded-2xl border border-[var(--border-strong)] bg-bg-panel">
-        <div className="flex items-baseline gap-3 border-b border-[var(--border)] px-5 py-4">
+        <div className="flex flex-wrap items-center gap-3 border-b border-[var(--border)] px-5 py-4">
           <div className="font-mono text-[11px] font-semibold uppercase tracking-[0.14em] text-text-muted">Detalle de faltas</div>
           <div className="font-display text-lg font-extrabold text-text">{nf(filtered.length)}</div>
           {filtered.length !== visibles.length && <div className="font-mono text-[11px] text-text-faint">de {nf(visibles.length)} del día</div>}
+          <span className="flex-1" />
+          <button
+            onClick={() => (bulk === "confirm" ? void aplicarTodas() : bulk === "idle" && setBulk("confirm"))}
+            disabled={bulk === "busy" || (bulk === "idle" && pendientes.length === 0)}
+            className={`cursor-pointer rounded-lg border px-4 py-2 font-mono text-[12px] font-semibold transition-colors disabled:cursor-default disabled:opacity-40 ${bulk === "confirm" ? "border-warning bg-[#2a2410] text-warning" : bulk === "done" ? "border-accent bg-[#123a2a] text-accent" : "border-accent text-accent hover:bg-[#123a2a]"}`}>
+            {bulk === "busy" ? "Aplicando…" : bulk === "done" ? "✓ Sanciones aplicadas" : bulk === "confirm" ? `¿Confirmar ${nf(pendientes.length)} sanciones?` : "⚑ Aplicar todas"}
+          </button>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full min-w-[1080px] border-collapse text-left">
             <thead>
               <tr className="border-b border-[var(--border)] font-mono text-[9px] uppercase tracking-[0.14em] text-text-faint">
-                {["Nº", "Hora", "Cámara / cruce", "Falta", "Placa*", "Foto", "Calidad", "Estado DNVT", ""].map((h, i) => (
+                {["Nº", "Hora", "Cámara / cruce", "Falta", "Placa*", "Foto", "Estado DNVT", ""].map((h, i) => (
                   <th key={i} className="px-4 py-3 font-medium">{h}</th>
                 ))}
               </tr>
@@ -450,10 +457,9 @@ export function DnvtPanel({ token, api = API }: { token: string; api?: string })
                     <td className="px-4 py-2">
                       <FotoVeh src={media(fotoPath(f))} onClick={() => setModal({ tipo: "evidencia", falta: f })} />
                     </td>
-                    <td className={`px-4 py-2.5 font-mono text-[10.5px] ${qa ? QA_BADGE[qa].cls : "text-text-faint"}`}>{qa ? QA_BADGE[qa].label : "—"}</td>
                     <td className="px-4 py-2.5">
                       {est === "boleta" ? (
-                        <span className="rounded-md border border-accent bg-[#123a2a] px-2 py-1 font-mono text-[10px] text-accent">Boleta emitida</span>
+                        <span className="rounded-md border border-accent bg-[#123a2a] px-2 py-1 font-mono text-[10px] text-accent">Sanción aplicada</span>
                       ) : est === "desestimada" ? (
                         <span className="rounded-md border border-danger bg-[#2a1512] px-2 py-1 font-mono text-[10px] text-danger">Desestimada</span>
                       ) : (
@@ -468,7 +474,7 @@ export function DnvtPanel({ token, api = API }: { token: string; api?: string })
                         </button>
                         <button onClick={() => setModal({ tipo: "boleta", falta: f })}
                           className={`cursor-pointer whitespace-nowrap rounded-md border px-2.5 py-1.5 font-mono text-[10px] transition-colors ${est === "boleta" ? "border-[var(--border)] text-text-faint hover:border-text-muted" : "border-accent text-accent hover:bg-[#123a2a]"}`}>
-                          {est === "boleta" ? "Ver boleta" : "⚑ Emitir"}
+                          {est === "boleta" ? "Ver boleta" : "⚑ Aplicar Sanción"}
                         </button>
                       </div>
                     </td>
@@ -476,7 +482,7 @@ export function DnvtPanel({ token, api = API }: { token: string; api?: string })
                 );
               })}
               {slice.length === 0 && (
-                <tr><td colSpan={9} className="px-5 py-8 text-center font-mono text-xs text-text-faint">Sin faltas para este filtro.</td></tr>
+                <tr><td colSpan={8} className="px-5 py-8 text-center font-mono text-xs text-text-faint">Sin faltas para este filtro.</td></tr>
               )}
             </tbody>
           </table>
@@ -703,7 +709,7 @@ function EvidenceModal({ falta, media, fecha, estado, onBoleta, onDesestimar, on
             </button>
             <button onClick={onBoleta}
               className={`cursor-pointer rounded-md border px-3.5 py-2 font-mono text-[11px] font-semibold transition-colors ${estado === "boleta" ? "border-[var(--border-strong)] text-text-muted hover:border-accent hover:text-accent" : "border-accent bg-[#123a2a] text-accent hover:brightness-110"}`}>
-              {estado === "boleta" ? "Ver boleta emitida" : "⚑ Emitir infracción"}
+              {estado === "boleta" ? "Ver boleta emitida" : "⚑ Aplicar sanción"}
             </button>
           </div>
         </div>
@@ -816,13 +822,13 @@ function BoletaModal({ falta, fecha, emitida, media, onEmitir, onVerEvidencia, o
           <span className="flex-1" />
           {ok ? (
             <>
-              <span className="rounded-md border border-accent bg-[#123a2a] px-3 py-2 font-mono text-[11px] text-accent">✓ Boleta emitida</span>
+              <span className="rounded-md border border-accent bg-[#123a2a] px-3 py-2 font-mono text-[11px] text-accent">✓ Sanción aplicada</span>
               <button onClick={imprimir} className="cursor-pointer rounded-md border border-[var(--border-strong)] px-3.5 py-2 font-mono text-[11px] text-text transition-colors hover:border-accent hover:text-accent">⎙ Imprimir</button>
             </>
           ) : (
             <button onClick={() => { onEmitir(); setOk(true); }}
               className="cursor-pointer rounded-lg bg-accent px-4 py-2.5 font-display text-[13px] font-bold text-[#062017] transition-opacity hover:opacity-90">
-              ⚑ Confirmar y emitir boleta
+              ⚑ Aplicar sanción
             </button>
           )}
         </div>
