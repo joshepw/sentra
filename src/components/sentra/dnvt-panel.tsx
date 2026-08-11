@@ -61,6 +61,7 @@ const MULTA_GRAVE = 600;   // L 600.00, Art. 101 Ley de Tránsito
 type Expediente = {
   placa: string; marca: string; modelo: string; color: string; anio: number;
   nombre: string; dni: string; licencia: string; direccion: string; telefono: string;
+  fotoDui: string;   // retrato ficticio (IA) estilo foto de licencia, casado con el género del nombre
   previas: number;   // faltas previas en el año (para el recargo por reincidencia)
 };
 // el tipo de vehículo no siempre viene en `tipo`: el pipeline lo deja al final del `why`
@@ -78,9 +79,12 @@ const mkRng = (seed: number) => () => {
   t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
   return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
 };
-const NOMBRES = ["Carlos Alberto", "José Luis", "Marvin Alexander", "Denis Omar", "Wilmer Antonio",
-  "María José", "Ana Lucía", "Karla Patricia", "Sandra Elizabeth", "Jorge Armando",
-  "Héctor Manuel", "Fanny Carolina", "Óscar Rolando", "Elvin Josué", "Gabriela Alejandra"];
+// nombres separados por género: la foto de licencia (ficticia, generada con IA — personas que
+// NO existen) se elige del pool del mismo género que el nombre
+const NOMBRES_H = ["Carlos Alberto", "José Luis", "Marvin Alexander", "Denis Omar", "Wilmer Antonio",
+  "Jorge Armando", "Héctor Manuel", "Óscar Rolando", "Elvin Josué"];
+const NOMBRES_M = ["María José", "Ana Lucía", "Karla Patricia", "Sandra Elizabeth",
+  "Fanny Carolina", "Gabriela Alejandra"];
 const APELLIDOS = ["Mejía", "Paz", "Rivera", "Cruz", "Hernández", "López", "Castro", "Zelaya",
   "Pineda", "Fúnez", "Membreño", "Carranza", "Sabillón", "Interiano", "Bográn"];
 const COLONIAS = ["Col. Jardines del Valle", "Barrio Guamilito", "Col. Trejo", "Col. Universidad",
@@ -103,11 +107,13 @@ function expedienteDe(f: Falta): Expediente {
   const pool = tipo === "Moto" ? MOTOS : tipo === "Bus" ? BUSES : tipo === "Camión" ? CAMIONES : AUTOS;
   const pref = tipo === "Moto" ? "M" : tipo === "Bus" ? "A" : tipo === "Camión" ? "C" : pick(["H", "P"]);
   const [marca, modelo] = pick(pool);
+  const sexo: "h" | "m" = r() < 0.72 ? "h" : "m";   // mayoría de infractores hombres
   const pv = r();
   return {
     placa: `${pref}${pick([...LETRAS])}${pick([...LETRAS])} ${dig(4)}`,
     marca, modelo, color: pick(COLORES), anio: 2005 + Math.floor(r() * 19),
-    nombre: `${pick(NOMBRES)} ${pick(APELLIDOS)} ${pick(APELLIDOS)}`,
+    nombre: `${pick(sexo === "h" ? NOMBRES_H : NOMBRES_M)} ${pick(APELLIDOS)} ${pick(APELLIDOS)}`,
+    fotoDui: `duis/${sexo}${Math.floor(r() * (sexo === "h" ? 3 : 2))}.webp`,
     dni: `0501-${1965 + Math.floor(r() * 38)}-${dig(5)}`,
     licencia: `L-${dig(8)}`,
     direccion: `${pick(COLONIAS)}, San Pedro Sula, Cortés`,
@@ -433,7 +439,7 @@ export function DnvtPanel({ token, api = API }: { token: string; api?: string })
             <thead>
               <tr className="border-b border-[var(--border)] font-mono text-[9px] uppercase tracking-[0.14em] text-text-faint">
                 {["Nº", "Hora", "Cámara / cruce", "Falta", "Placa*", "Foto", "Estado DNVT", ""].map((h, i) => (
-                  <th key={i} className="px-4 py-3 font-medium">{h}</th>
+                  <th key={i} className={`px-4 py-3 font-medium${i === 7 ? " text-right" : ""}`}>{h}</th>
                 ))}
               </tr>
             </thead>
@@ -467,7 +473,7 @@ export function DnvtPanel({ token, api = API }: { token: string; api?: string })
                       )}
                     </td>
                     <td className="px-4 py-2.5">
-                      <div className="flex gap-1.5">
+                      <div className="flex justify-end gap-1.5">
                         <button onClick={() => setModal({ tipo: "evidencia", falta: f })}
                           className="cursor-pointer whitespace-nowrap rounded-md border border-[var(--border-strong)] px-2.5 py-1.5 font-mono text-[10px] text-text-muted transition-colors hover:border-accent hover:text-accent">
                           ▶ Evidencia
@@ -681,8 +687,15 @@ function EvidenceModal({ falta, media, fecha, estado, onBoleta, onDesestimar, on
               </div>
               <div>
                 <div className="font-mono text-[9px] uppercase tracking-[0.14em] text-text-faint">Propietario registral</div>
-                <div className="mt-0.5 font-sans text-[13px] text-text">{exp.nombre}</div>
-                <div className="font-mono text-[10.5px] text-text-muted">DNI {exp.dni} · Lic. {exp.licencia}</div>
+                <div className="mt-1.5 flex items-center gap-3">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={media(exp.fotoDui)} alt="Foto de licencia (ficticia)"
+                    className="h-[76px] w-[60px] rounded-md border border-[var(--border-strong)] object-cover" />
+                  <div>
+                    <div className="font-sans text-[13px] text-text">{exp.nombre}</div>
+                    <div className="font-mono text-[10.5px] text-text-muted">DNI {exp.dni} · Lic. {exp.licencia}</div>
+                  </div>
+                </div>
               </div>
               <div>
                 <div className="font-mono text-[9px] uppercase tracking-[0.14em] text-text-faint">Domicilio / contacto</div>
@@ -756,7 +769,8 @@ function BoletaModal({ falta, fecha, emitida, media, onEmitir, onVerEvidencia, o
       ["Categoría", `Infracción ${legal.categoria} — Ley de Tránsito (Decreto 205-2005)`],
       ["Placa", placaHtml],
       ["Vehículo captado", `<img src="${media(fotoPath(falta))}" style="height:84px;border:1px solid #999;border-radius:6px" />`],
-      ["Propietario registral", exp.nombre], ["DNI", exp.dni], ["Licencia", exp.licencia],
+      ["Propietario registral", `<img src="${media(exp.fotoDui)}" style="height:72px;border:1px solid #999;border-radius:4px;vertical-align:middle;margin-right:10px" />${exp.nombre}`],
+      ["DNI", exp.dni], ["Licencia", exp.licencia],
       ["Domicilio", exp.direccion],
       ["Reincidencia", exp.previas === 0 ? "No registra" : `${exp.previas} falta(s) previa(s) en 12 meses`],
       ["Multa", lps(monto) + (exp.previas === 1 ? " (base L 600.00 + 50% reincidencia; conlleva suspensión de licencia 6 meses)" : exp.previas === 2 ? " (base L 600.00 + 100% reincidencia agravada)" : " (Art. 101, infracción grave)")],
@@ -810,7 +824,12 @@ function BoletaModal({ falta, fecha, emitida, media, onEmitir, onVerEvidencia, o
           {row("Categoría", <>Infracción <span className="font-semibold text-danger">{legal.categoria}</span> · Ley de Tránsito (Decreto 205-2005)</>)}
           {row("Placa", <Placa placa={exp.placa} size={1.3} />)}
           {row("Vehículo captado", <FotoVeh src={media(fotoPath(falta))} big />)}
-          {row("Propietario", <>{exp.nombre} <span className="font-mono text-[11px] text-text-faint">· DNI {exp.dni} · Lic. {exp.licencia}</span></>)}
+          {row("Propietario", <span className="flex items-center gap-3">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={media(exp.fotoDui)} alt="Foto de licencia (ficticia)"
+              className="h-[64px] w-[50px] rounded border border-[var(--border-strong)] object-cover" />
+            <span>{exp.nombre} <span className="font-mono text-[11px] text-text-faint">· DNI {exp.dni} · Lic. {exp.licencia}</span></span>
+          </span>)}
           {row("Reincidencia", exp.previas === 0 ? "No registra faltas previas"
             : exp.previas === 1 ? <span className="text-warning">1 falta previa — multa +50% y suspensión de licencia 6 meses</span>
             : <span className="text-warning">2 faltas previas — multa +100%</span>)}
