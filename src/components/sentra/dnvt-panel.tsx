@@ -163,6 +163,25 @@ function Placa({ placa, size = 1 }: { placa: string; size?: number }) {
   );
 }
 
+// Fotito del vehículo: WebP pre-generada en el servidor (rápida y liviana); "sin foto" si falta.
+const fotoPath = (f: Falta) => `${f.cam}/fotos/${f.kind}_${f.id}_${f.hh}.webp`;
+function FotoVeh({ src, onClick, big = false }: { src: string; onClick?: () => void; big?: boolean }) {
+  const [err, setErr] = useState(false);
+  const cls = big ? "h-[104px] w-[184px]" : "h-[52px] w-[92px]";
+  const inner = err ? (
+    <div className={`flex ${cls} items-center justify-center bg-bg-card font-mono text-[9px] text-text-faint`}>sin foto</div>
+  ) : (
+    /* eslint-disable-next-line @next/next/no-img-element */
+    <img src={src} alt="Vehículo captado" loading="lazy" onError={() => setErr(true)} className={`${cls} object-cover`} />
+  );
+  return onClick ? (
+    <button onClick={onClick} title="Ver evidencia"
+      className="block cursor-pointer overflow-hidden rounded-md border border-[var(--border)] bg-bg-card transition-colors hover:border-accent">{inner}</button>
+  ) : (
+    <div className="inline-block overflow-hidden rounded-md border border-[var(--border)] bg-bg-card align-middle">{inner}</div>
+  );
+}
+
 // "1 Calle - 14 Avenida N.O (Seguros Atlantida)" -> "Seguros Atlantida"
 const shortName = (nombre: string, id: string) => {
   const paren = nombre.match(/\(([^)]+)\)/)?.[1] ?? nombre.split("-").pop()?.trim() ?? id;
@@ -255,80 +274,6 @@ export function DnvtPanel({ token, api = API }: { token: string; api?: string })
     return m;
   }, [preHour]);
 
-  // ---- fotitos: recorte del vehículo desde el video, en el navegador (canvas + video CORS).
-  // Se agrupan las filas visibles por (cámara, hora) para cargar UN video por grupo y se
-  // recorta la mejor caja del infractor cerca del momento de la falta. "" = sin foto.
-  const [thumbs, setThumbs] = useState<Record<string, string>>({});
-  const thumbsRef = useRef(thumbs); thumbsRef.current = thumbs;
-  const detCacheP = useRef<Map<string, Promise<Det | null>>>(new Map());
-  const getDet = useCallback((cam: string, hh: string) => {
-    const k = `${cam}/${hh}`;
-    if (!detCacheP.current.has(k))
-      detCacheP.current.set(k, fetch(media(`${cam}/det/${hh}.json`)).then((r) => r.json()).catch(() => null));
-    return detCacheP.current.get(k)!;
-  }, [media]);
-  const sliceKey = slice.map((f) => f.key).join(",");
-  useEffect(() => {
-    let cancelled = false;
-    const pend = slice.filter((f) => f.key && thumbsRef.current[f.key] === undefined);
-    if (!pend.length) return;
-    const video = document.createElement("video");
-    video.crossOrigin = "anonymous"; video.muted = true; video.preload = "auto";
-    const canvas = document.createElement("canvas");
-    const groups = new Map<string, Falta[]>();
-    pend.forEach((f) => { const k = `${f.cam}/${f.hh}`; if (!groups.has(k)) groups.set(k, []); groups.get(k)!.push(f); });
-    const seekTo = (t: number) => new Promise<void>((res) => {
-      const h = () => { video.removeEventListener("seeked", h); res(); };
-      video.addEventListener("seeked", h);
-      try { video.currentTime = t; } catch { video.removeEventListener("seeked", h); res(); }
-    });
-    (async () => {
-      for (const [gk, fs] of groups) {
-        if (cancelled) return;
-        const [cam, hh] = gk.split("/");
-        const det = await getDet(cam, hh);
-        const okLoad = await new Promise<boolean>((res) => {
-          const ok = () => { clean(); res(true); };
-          const bad = () => { clean(); res(false); };
-          const clean = () => { video.removeEventListener("loadeddata", ok); video.removeEventListener("error", bad); };
-          video.addEventListener("loadeddata", ok); video.addEventListener("error", bad);
-          video.src = media(`${cam}/video/${hh}.mp4`); video.load();
-        });
-        for (const f of fs) {
-          if (cancelled) return;
-          let url = "";
-          if (det && okLoad && video.videoWidth) {
-            const target = Math.round(f.t * det.fps);
-            let best: { slot: number; x: number; y: number; w: number; h: number; area: number } | null = null;
-            for (let sl = target - det.fps * 3; sl <= target + det.fps * 3; sl++) {
-              const arr = det.boxes[sl]; if (!arr) continue;
-              for (const [id, x, y, w, h] of arr) if (id === f.id) {
-                const area = w * h;
-                if (!best || area > best.area) best = { slot: sl, x, y, w, h, area };
-              }
-            }
-            if (best) {
-              await seekTo(best.slot / det.fps);
-              if (cancelled) return;
-              const sc = video.videoWidth / det.nw;
-              const pad = 0.25, bw = best.w * sc, bh = best.h * sc;
-              const cw = Math.max(8, bw * (1 + 2 * pad)), ch = Math.max(8, bh * (1 + 2 * pad));
-              const px = Math.max(0, best.x * sc - bw * pad), py = Math.max(0, best.y * sc - bh * pad);
-              const TW = 168, TH = Math.max(56, Math.round(TW * ch / cw));
-              canvas.width = TW; canvas.height = TH;
-              const ctx = canvas.getContext("2d");
-              if (ctx) { try { ctx.drawImage(video, px, py, cw, ch, 0, 0, TW, TH); url = canvas.toDataURL("image/jpeg", 0.75); } catch {} }
-            }
-          }
-          if (!cancelled) setThumbs((st) => ({ ...st, [f.key!]: url }));
-        }
-      }
-      video.removeAttribute("src"); video.load();
-    })();
-    return () => { cancelled = true; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sliceKey]);
-
   const postEstado = useCallback(async (f: Falta, patch: { estado?: string; nota?: string }) => {
     if (!f.key) return;
     const prev = estados[f.key] ?? { estado: "pendiente", nota: "" };
@@ -355,13 +300,13 @@ export function DnvtPanel({ token, api = API }: { token: string; api?: string })
       const exp = expedienteDe(f);
       return [
         corr(f.n), data.fecha, horaDe(f), f.camName, KIND_LABEL[f.kind], tipoDe(f) ?? "", f.id,
-        exp.placa, `${exp.marca} ${exp.modelo} ${exp.color}`, exp.nombre, exp.dni,
+        exp.placa, exp.nombre, exp.dni,
         estadoDe(f), (f.key && estados[f.key]?.nota) || "",
         qaDe(f) ? QA_BADGE[qaDe(f)!].label : "", f.why ?? "",
       ].map(esc).join(",");
     });
     const head = ["correlativo", "fecha", "hora", "camara", "falta", "vehiculo", "id_vehiculo",
-      "placa_FICTICIA", "descripcion_vehiculo_FICTICIA", "propietario_FICTICIO", "dni_FICTICIO",
+      "placa_FICTICIA", "propietario_FICTICIO", "dni_FICTICIO",
       "estado_dnvt", "nota", "control_calidad", "motivo_deteccion"].join(",");
     const blob = new Blob(["﻿" + [head, ...rows].join("\n")], { type: "text/csv;charset=utf-8" });
     const a = document.createElement("a");
@@ -434,7 +379,8 @@ export function DnvtPanel({ token, api = API }: { token: string; api?: string })
           <span className="font-mono text-[9px] uppercase tracking-[0.16em] text-text-faint">Cámara</span>
           <select value={fCam} onChange={(e) => setFCam(e.target.value)} className={selCls}>
             <option value="all">Todas</option>
-            {data.cams.map((c) => <option key={c.id} value={c.id}>{shortName(c.nombre, c.id)}</option>)}
+            {data.cams.filter((c) => visibles.some((f) => f.cam === c.id))
+              .map((c) => <option key={c.id} value={c.id}>{shortName(c.nombre, c.id)}</option>)}
           </select>
         </label>
         <label className="flex flex-col gap-2">
@@ -502,17 +448,7 @@ export function DnvtPanel({ token, api = API }: { token: string; api?: string })
                     </td>
                     <td className="px-4 py-2"><Placa placa={exp.placa} size={0.74} /></td>
                     <td className="px-4 py-2">
-                      <button onClick={() => setModal({ tipo: "evidencia", falta: f })} title="Ver evidencia"
-                        className="block cursor-pointer overflow-hidden rounded-md border border-[var(--border)] bg-bg-card transition-colors hover:border-accent">
-                        {f.key && thumbs[f.key] ? (
-                          /* eslint-disable-next-line @next/next/no-img-element */
-                          <img src={thumbs[f.key]} alt="Vehículo captado" className="h-[52px] w-[92px] object-cover" />
-                        ) : f.key && thumbs[f.key] === "" ? (
-                          <div className="flex h-[52px] w-[92px] items-center justify-center font-mono text-[9px] text-text-faint">sin foto</div>
-                        ) : (
-                          <div className="h-[52px] w-[92px] animate-sn-pulse" />
-                        )}
-                      </button>
+                      <FotoVeh src={media(fotoPath(f))} onClick={() => setModal({ tipo: "evidencia", falta: f })} />
                     </td>
                     <td className={`px-4 py-2.5 font-mono text-[10.5px] ${qa ? QA_BADGE[qa].cls : "text-text-faint"}`}>{qa ? QA_BADGE[qa].label : "—"}</td>
                     <td className="px-4 py-2.5">
@@ -565,7 +501,7 @@ export function DnvtPanel({ token, api = API }: { token: string; api?: string })
           onClose={() => setModal(null)} />
       )}
       {modal?.tipo === "boleta" && (
-        <BoletaModal falta={modal.falta} fecha={data.fecha} emitida={estadoDe(modal.falta) === "boleta"}
+        <BoletaModal falta={modal.falta} fecha={data.fecha} media={media} emitida={estadoDe(modal.falta) === "boleta"}
           onEmitir={() => emitir(modal.falta)}
           onVerEvidencia={() => setModal({ tipo: "evidencia", falta: modal.falta })}
           onClose={() => setModal(null)} />
@@ -734,8 +670,8 @@ function EvidenceModal({ falta, media, fecha, estado, onBoleta, onDesestimar, on
                 <div className="mt-1.5"><Placa placa={exp.placa} size={1.55} /></div>
               </div>
               <div>
-                <div className="font-mono text-[9px] uppercase tracking-[0.14em] text-text-faint">Vehículo</div>
-                <div className="mt-0.5 font-sans text-[13px] text-text">{exp.marca} {exp.modelo} {exp.anio} · {exp.color}</div>
+                <div className="font-mono text-[9px] uppercase tracking-[0.14em] text-text-faint">Vehículo captado</div>
+                <div className="mt-1.5"><FotoVeh src={media(fotoPath(falta))} big /></div>
               </div>
               <div>
                 <div className="font-mono text-[9px] uppercase tracking-[0.14em] text-text-faint">Propietario registral</div>
@@ -779,8 +715,8 @@ function EvidenceModal({ falta, media, fecha, estado, onBoleta, onDesestimar, on
 // Boleta de infracción (demo): previsualización con la tipificación real de la Ley de
 // Tránsito, multa con recargo por reincidencia y datos ficticios del expediente. "Confirmar"
 // guarda el estado en el backend; "Imprimir" abre una versión de papel en ventana nueva.
-function BoletaModal({ falta, fecha, emitida, onEmitir, onVerEvidencia, onClose }: {
-  falta: Falta; fecha: string; emitida: boolean;
+function BoletaModal({ falta, fecha, emitida, media, onEmitir, onVerEvidencia, onClose }: {
+  falta: Falta; fecha: string; emitida: boolean; media: (p: string) => string;
   onEmitir: () => void; onVerEvidencia: () => void; onClose: () => void;
 }) {
   const exp = expedienteDe(falta);
@@ -812,7 +748,8 @@ function BoletaModal({ falta, fecha, emitida, onEmitir, onVerEvidencia, onClose 
       ["Lugar", falta.camName + ", San Pedro Sula, Cortés"],
       ["Falta", KIND_LABEL[falta.kind]], ["Tipificación", legal.texto],
       ["Categoría", `Infracción ${legal.categoria} — Ley de Tránsito (Decreto 205-2005)`],
-      ["Placa", placaHtml], ["Vehículo", `${exp.marca} ${exp.modelo} ${exp.anio}, ${exp.color}`],
+      ["Placa", placaHtml],
+      ["Vehículo captado", `<img src="${media(fotoPath(falta))}" style="height:84px;border:1px solid #999;border-radius:6px" />`],
       ["Propietario registral", exp.nombre], ["DNI", exp.dni], ["Licencia", exp.licencia],
       ["Domicilio", exp.direccion],
       ["Reincidencia", exp.previas === 0 ? "No registra" : `${exp.previas} falta(s) previa(s) en 12 meses`],
@@ -866,7 +803,7 @@ function BoletaModal({ falta, fecha, emitida, onEmitir, onVerEvidencia, onClose 
           {row("Tipificación", legal.texto)}
           {row("Categoría", <>Infracción <span className="font-semibold text-danger">{legal.categoria}</span> · Ley de Tránsito (Decreto 205-2005)</>)}
           {row("Placa", <Placa placa={exp.placa} size={1.3} />)}
-          {row("Vehículo", `${exp.marca} ${exp.modelo} ${exp.anio} · ${exp.color}`)}
+          {row("Vehículo captado", <FotoVeh src={media(fotoPath(falta))} big />)}
           {row("Propietario", <>{exp.nombre} <span className="font-mono text-[11px] text-text-faint">· DNI {exp.dni} · Lic. {exp.licencia}</span></>)}
           {row("Reincidencia", exp.previas === 0 ? "No registra faltas previas"
             : exp.previas === 1 ? <span className="text-warning">1 falta previa — multa +50% y suspensión de licencia 6 meses</span>
