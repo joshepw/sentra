@@ -10,6 +10,15 @@ const API = process.env.NEXT_PUBLIC_SENTRA_API ?? "https://transito.meteoro.xyz"
 const COL: Record<number, string> = { 2: "#3dd68c", 3: "#e6b24d", 5: "#6fc9f2", 7: "#c85adc" };
 const TIPO: Record<number, string> = { 2: "Auto", 3: "Moto", 5: "Bus", 7: "Camión" };
 const hh2 = (h: number) => String(h).padStart(2, "0");
+// horas en formato de 12 horas AM/PM (como se usan en Honduras)
+const hora12 = (hh: string | number) => {
+  const h = typeof hh === "string" ? parseInt(hh, 10) : hh;
+  return `${h % 12 || 12} ${h < 12 ? "AM" : "PM"}`;
+};
+const horaExacta = (hh: string, t: number) => {
+  const h = parseInt(hh, 10);
+  return `${h % 12 || 12}:${String(Math.floor(t / 60)).padStart(2, "0")}:${String(Math.floor(t % 60)).padStart(2, "0")} ${h < 12 ? "AM" : "PM"}`;
+};
 const nf = (n: number) => n.toLocaleString("es-HN");
 
 type HourInfo = { n_veh: number; base_ts: number };
@@ -219,7 +228,7 @@ export function TrafficViewer({ token, admin = false, api = API, label }: { toke
             <span className="block text-[13px] font-semibold text-danger">{label}</span>
             <span className="mt-1 block font-mono text-[10px] text-text-muted">#{v.id} {v.tipo ?? ""}</span>
           </span>
-          <span className="shrink-0 font-mono text-[11px] text-accent">{v.hh}:00 +{Math.round(v.t)}s</span>
+          <span className="shrink-0 font-mono text-[11px] text-accent">{horaExacta(v.hh, v.t)}</span>
         </button>
         {admin && (
           <div className="px-5 pb-3.5">
@@ -332,7 +341,7 @@ export function TrafficViewer({ token, admin = false, api = API, label }: { toke
             )}
           </div>
           <div className="mt-3 flex items-center gap-3 font-mono text-[11px] text-text-faint">
-            <span>Hora {hour}:00</span>
+            <span>Hora {hora12(hour)}</span>
             <span className="ml-auto">{nf(cam.hours[hour]?.n_veh ?? 0)} veh en esta hora</span>
           </div>
           {/* selector de horas — debajo del video */}
@@ -342,7 +351,7 @@ export function TrafficViewer({ token, admin = false, api = API, label }: { toke
               return (
                 <button key={hk} disabled={!en} onClick={() => setHour(hk)}
                   className={`rounded-md border px-2.5 py-1.5 font-mono text-[11.5px] transition-colors ${on ? "border-accent bg-[#123a2a] text-accent" : "border-[var(--border)] bg-bg-input text-text-muted"} ${en ? "cursor-pointer hover:border-accent hover:text-text" : "opacity-25"}`}>
-                  {hk}h
+                  {hora12(hk)}
                 </button>
               );
             })}
@@ -525,7 +534,7 @@ function VehicleGallery({ camId, camName, hour, det, media, infrById, onSeek }: 
     return () => { cancelled = true; };
   }, [sliceKey, det]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const time = (t: number) => `${hour}:${String(Math.floor(t / 60)).padStart(2, "0")}:${String(Math.floor(t % 60)).padStart(2, "0")}`;
+  const time = (t: number) => horaExacta(hour, t);
   const selCls = "appearance-none rounded-lg border border-[var(--border-strong)] bg-[#0f241b] px-3.5 py-2.5 font-sans text-[13px] text-text outline-none";
   const pageBtn = "rounded-lg border border-[var(--border-strong)] px-3 py-2 font-mono text-[12px] text-text-muted transition-colors hover:text-accent disabled:opacity-35 disabled:hover:text-text-muted";
 
@@ -651,7 +660,7 @@ function HourlyChart({ hoursList, hoursData, infByHour, current, onPick }: {
         const y = yV(nv); const isCur = hk === current;
         return (
           <g key={`b${hk}`} onClick={() => on && onPick(hk)} className={on ? "cursor-pointer" : undefined}>
-            <title>{`${hk}:00 · ${nf(nv)} veh · ${infByHour[hk] ?? 0} infr`}</title>
+            <title>{`${hora12(hk)} · ${nf(nv)} veh · ${infByHour[hk] ?? 0} infr`}</title>
             <rect x={padL + slot * i} y={padT} width={slot} height={plotH} fill="transparent" />
             {on && <rect x={cx(i) - barW / 2} y={y} width={barW} height={Math.max(0, baseY - y)} rx={1.5}
               fill={isCur ? "#3dd68c" : "#2e7d64"} className="transition-[fill] hover:brightness-125" />}
@@ -665,7 +674,7 @@ function HourlyChart({ hoursList, hoursData, infByHour, current, onPick }: {
       ) : null))}
       {/* etiquetas de hora cada 3 */}
       {hoursList.map((hk, i) => (i % 3 === 0 ? (
-        <text key={`hl${hk}`} x={cx(i)} y={baseY + 18} fill="#5f7468" fontFamily="IBM Plex Mono, monospace" fontSize={9} textAnchor="middle">{hk}</text>
+        <text key={`hl${hk}`} x={cx(i)} y={baseY + 18} fill="#5f7468" fontFamily="IBM Plex Mono, monospace" fontSize={9} textAnchor="middle">{hora12(hk)}</text>
       ) : null))}
     </svg>
   );
