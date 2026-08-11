@@ -169,8 +169,18 @@ const shortName = (nombre: string, id: string) => {
   const suf = nombre.match(/_\s*0?(\d+)\s*$/)?.[1];
   return paren.replace(/\s*_\s*0?\d+\s*$/, "") + (suf ? ` _${suf}` : "");
 };
-const horaDe = (f: Infr) =>
-  `${f.hh}:${String(Math.floor(f.t / 60)).padStart(2, "0")}:${String(Math.floor(f.t % 60)).padStart(2, "0")}`;
+// horas en formato de 12 horas AM/PM (como se usan en Honduras)
+const hora12 = (hh: string) => {
+  const h = parseInt(hh, 10);
+  return `${h % 12 || 12} ${h < 12 ? "AM" : "PM"}`;
+};
+const horaDe = (f: Infr) => {
+  const h = parseInt(f.hh, 10);
+  return `${h % 12 || 12}:${String(Math.floor(f.t / 60)).padStart(2, "0")}:${String(Math.floor(f.t % 60)).padStart(2, "0")} ${h < 12 ? "AM" : "PM"}`;
+};
+// el registro se muestra desde el mediodía (las faltas de día son más convincentes en el
+// demo): 12 PM → 11 PM y de último la madrugada. El correlativo sigue siendo cronológico.
+const ordenDia = (hh: string) => (parseInt(hh, 10) + 12) % 24;
 const corr = (n: number) => `F-${String(n).padStart(3, "0")}`;
 const boletaNum = (fecha: string, n: number) => `B-${fecha.replaceAll("-", "")}-${String(n).padStart(3, "0")}`;
 const lps = (n: number) => `L ${n.toLocaleString("es-HN", { minimumFractionDigits: 2 })}`;
@@ -209,6 +219,7 @@ export function DnvtPanel({ token, api = API }: { token: string; api?: string })
       c.infr.map((v) => ({ ...v, cam: c.id, camName: c.nombre, camShort: shortName(c.nombre, c.id), n: 0 })));
     list.sort((a, b) => a.hh.localeCompare(b.hh) || a.t - b.t);
     list.forEach((f, i) => { f.n = i + 1; });
+    list.sort((a, b) => ordenDia(a.hh) - ordenDia(b.hh) || a.t - b.t);
     return list;
   }, [data]);
 
@@ -334,7 +345,7 @@ export function DnvtPanel({ token, api = API }: { token: string; api?: string })
           <div className="font-mono text-[11px] font-semibold uppercase tracking-[0.14em] text-text-muted">Faltas por hora</div>
           {fHour !== "all" && (
             <button onClick={() => setFHour("all")} className="cursor-pointer font-mono text-[11px] text-accent hover:underline">
-              viendo {fHour}:00 · ver todo el día
+              viendo {hora12(fHour)} · ver todo el día
             </button>
           )}
         </div>
@@ -479,7 +490,7 @@ export function DnvtPanel({ token, api = API }: { token: string; api?: string })
 function HourBars({ byHour, current, onPick }: {
   byHour: Record<string, number>; current: string; onPick: (hk: string) => void;
 }) {
-  const hours = Array.from({ length: 24 }, (_, h) => String(h).padStart(2, "0"));
+  const hours = Array.from({ length: 24 }, (_, h) => String((h + 12) % 24).padStart(2, "0"));
   const max = Math.max(1, ...hours.map((hk) => byHour[hk] ?? 0));
   const VBW = 1180, VBH = 180, padL = 34, padB = 26, padT = 10;
   const plotW = VBW - padL - 10, plotH = VBH - padT - padB, baseY = padT + plotH;
@@ -502,11 +513,11 @@ function HourBars({ byHour, current, onPick }: {
         const on = current === hk;
         return (
           <g key={hk} onClick={() => v > 0 && onPick(hk)} className={v > 0 ? "cursor-pointer" : undefined}>
-            <title>{`${hk}:00 · ${v} faltas`}</title>
+            <title>{`${hora12(hk)} · ${v} faltas`}</title>
             <rect x={padL + slot * i} y={padT} width={slot} height={plotH} fill="transparent" />
             {v > 0 && <rect x={x - barW / 2} y={baseY - h} width={barW} height={h} rx={1.5}
               fill={on ? "#3dd68c" : "#b04a42"} className="transition-[fill] hover:brightness-125" />}
-            {i % 3 === 0 && <text x={x} y={baseY + 16} fill="#5f7468" fontFamily="IBM Plex Mono, monospace" fontSize={9} textAnchor="middle">{hk}</text>}
+            {i % 3 === 0 && <text x={x} y={baseY + 16} fill="#5f7468" fontFamily="IBM Plex Mono, monospace" fontSize={9} textAnchor="middle">{hora12(hk)}</text>}
           </g>
         );
       })}
