@@ -115,6 +115,50 @@ function expedienteDe(f: Falta): Expediente {
 const multaDe = (exp: Expediente) => exp.previas === 0 ? MULTA_GRAVE
   : exp.previas === 1 ? MULTA_GRAVE * 1.5 : MULTA_GRAVE * 2;
 
+// ---- Placa hondureña a puro CSS ----
+// Formato real: banda azul superior con HONDURAS y la bandera, caracteres negros condensados,
+// franja CENTROAMÉRICA abajo y calcomanía de revisión. `size` escala todo (1 ≈ 118px de ancho).
+const AZUL_PLACA = "#1a35c4";
+function Placa({ placa, size = 1 }: { placa: string; size?: number }) {
+  const w = 118 * size, h = w * 0.485;
+  const [letras, digitos] = placa.split(" ");
+  return (
+    <div title={`Placa (ficticia) ${placa}`}
+      className="relative inline-block select-none overflow-hidden bg-white align-middle"
+      style={{ width: w, height: h, borderRadius: w * 0.055, border: `${Math.max(1, w * 0.014)}px solid #1c1c1c`, boxShadow: "inset 0 0 0 1px rgba(0,0,0,.10), 0 1px 2px rgba(0,0,0,.35)" }}>
+      {/* banda superior */}
+      <div className="absolute inset-x-0 top-0 flex items-center justify-center" style={{ height: h * 0.26, background: AZUL_PLACA }}>
+        <span style={{ color: "#fff", fontFamily: "Archivo, sans-serif", fontWeight: 800, fontSize: h * 0.15, letterSpacing: "0.16em", transform: "scaleY(1.1)" }}>HONDURAS</span>
+        <span className="absolute rounded-full bg-white/90" style={{ left: "24%", top: "30%", width: w * 0.05, height: h * 0.05 }} />
+        <span className="absolute rounded-full bg-white/90" style={{ right: "24%", top: "30%", width: w * 0.05, height: h * 0.05 }} />
+      </div>
+      {/* bandera */}
+      <div className="absolute overflow-hidden" style={{ left: w * 0.02, top: h * 0.035, width: w * 0.15, height: h * 0.19, borderRadius: w * 0.012, border: "1px solid rgba(255,255,255,.75)" }}>
+        <div style={{ height: "33%", background: AZUL_PLACA }} />
+        <div className="flex items-center justify-center" style={{ height: "34%", background: "#fff", color: AZUL_PLACA, fontSize: h * 0.062, lineHeight: 1, letterSpacing: "0.08em" }}>★★★</div>
+        <div style={{ height: "33%", background: AZUL_PLACA }} />
+      </div>
+      {/* número */}
+      <div className="absolute inset-x-0 flex items-center justify-center" style={{ top: h * 0.24, height: h * 0.56 }}>
+        <span style={{ fontFamily: "Archivo, sans-serif", fontWeight: 900, fontSize: h * 0.44, letterSpacing: "0.005em", color: "#0d0d0d", transform: "scaleY(1.42)", whiteSpace: "nowrap" }}>
+          {letras}<span className="inline-block" style={{ width: w * 0.022 }} />{digitos}
+        </span>
+      </div>
+      {/* franja inferior */}
+      <div className="absolute inset-x-0 flex items-center justify-center" style={{ bottom: h * 0.025, height: h * 0.15 }}>
+        <span style={{ color: AZUL_PLACA, fontFamily: "Archivo, sans-serif", fontWeight: 700, fontSize: h * 0.105, letterSpacing: "0.12em" }}>CENTROAMÉRICA</span>
+      </div>
+      {/* calcomanía de revisión (solo en tamaños grandes) */}
+      {size >= 1.2 && (
+        <div className="absolute overflow-hidden" style={{ right: w * 0.028, bottom: h * 0.045, width: w * 0.125, height: h * 0.145, border: "1px solid #9a9a9a", borderRadius: w * 0.01, background: "#e8e8e8" }}>
+          <div style={{ background: AZUL_PLACA, color: "#fff", fontSize: h * 0.052, textAlign: "center", lineHeight: 1.5, fontFamily: "Archivo, sans-serif", fontWeight: 700 }}>07/26</div>
+          <div style={{ fontSize: h * 0.034, textAlign: "center", color: "#555", lineHeight: 1.4 }}>REVISIÓN</div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // "1 Calle - 14 Avenida N.O (Seguros Atlantida)" -> "Seguros Atlantida"
 const shortName = (nombre: string, id: string) => {
   const paren = nombre.match(/\(([^)]+)\)/)?.[1] ?? nombre.split("-").pop()?.trim() ?? id;
@@ -171,13 +215,14 @@ export function DnvtPanel({ token, api = API }: { token: string; api?: string })
   const visibles = useMemo(() => faltas.filter((f) => conQA || qaDe(f) !== "incorrecta"),
     [faltas, reviews, conQA]);   // eslint-disable-line react-hooks/exhaustive-deps
   const preHour = useMemo(() => {
-    const q = busca.trim().toLowerCase();
+    const q = busca.trim().toLowerCase().replace(/\s/g, "");
     return visibles.filter((f) =>
       (fCam === "all" || f.cam === fCam) &&
       (fKind === "all" || f.kind === fKind) &&
       (fEstado === "all" || estadoDe(f) === fEstado) &&
-      (!q || expedienteDe(f).placa.toLowerCase().includes(q) || String(f.id).includes(q)
-        || expedienteDe(f).nombre.toLowerCase().includes(q)));
+      (!q || expedienteDe(f).placa.toLowerCase().replace(/\s/g, "").includes(q)
+        || String(f.id).includes(q)
+        || expedienteDe(f).nombre.toLowerCase().replace(/\s/g, "").includes(q)));
   }, [visibles, fCam, fKind, fEstado, busca, estados]);   // eslint-disable-line react-hooks/exhaustive-deps
   const filtered = useMemo(() => preHour.filter((f) => fHour === "all" || f.hh === fHour), [preHour, fHour]);
 
@@ -364,7 +409,7 @@ export function DnvtPanel({ token, api = API }: { token: string; api?: string })
                         {KIND_TAG[f.kind]}
                       </span>
                     </td>
-                    <td className="px-4 py-2.5 font-mono text-[11.5px] font-semibold tracking-wide text-text">{exp.placa}</td>
+                    <td className="px-4 py-2"><Placa placa={exp.placa} size={0.74} /></td>
                     <td className="px-4 py-2.5 font-sans text-[12px] text-text-muted">{exp.marca} {exp.modelo} · {f.tipo ?? "—"} <span className="font-mono text-[10px] text-text-faint">#{f.id}</span></td>
                     <td className={`px-4 py-2.5 font-mono text-[10.5px] ${qa ? QA_BADGE[qa].cls : "text-text-faint"}`}>{qa ? QA_BADGE[qa].label : "—"}</td>
                     <td className="px-4 py-2.5">
@@ -583,7 +628,7 @@ function EvidenceModal({ falta, media, fecha, estado, onBoleta, onDesestimar, on
             <div className="grid gap-x-6 gap-y-2.5 px-4 py-3.5 sm:grid-cols-2">
               <div>
                 <div className="font-mono text-[9px] uppercase tracking-[0.14em] text-text-faint">Placa</div>
-                <div className="mt-0.5 inline-block rounded border border-[var(--border-strong)] bg-bg-input px-2.5 py-1 font-mono text-[15px] font-bold tracking-[0.12em] text-text">{exp.placa}</div>
+                <div className="mt-1.5"><Placa placa={exp.placa} size={1.55} /></div>
               </div>
               <div>
                 <div className="font-mono text-[9px] uppercase tracking-[0.14em] text-text-faint">Vehículo</div>
@@ -650,12 +695,21 @@ function BoletaModal({ falta, fecha, emitida, onEmitir, onVerEvidencia, onClose 
   const imprimir = () => {
     const w = window.open("", "_blank", "width=760,height=900");
     if (!w) return;
+    // mini placa hondureña en la versión de papel (mismos elementos que el componente Placa)
+    const placaHtml = `<div style="display:inline-block;width:158px;height:76px;background:#fff;border:2px solid #1c1c1c;border-radius:8px;position:relative;overflow:hidden;vertical-align:middle">
+      <div style="height:20px;background:${AZUL_PLACA};color:#fff;text-align:center;font:800 10px Arial,sans-serif;letter-spacing:2.5px;line-height:20px">HONDURAS</div>
+      <div style="position:absolute;left:4px;top:3px;width:22px;height:14px;border:1px solid rgba(255,255,255,.75);border-radius:2px;overflow:hidden">
+        <div style="height:4px;background:${AZUL_PLACA}"></div><div style="height:5px;background:#fff;color:${AZUL_PLACA};font-size:4px;text-align:center;line-height:5px">★★★</div><div style="height:4px;background:${AZUL_PLACA}"></div>
+      </div>
+      <div style="text-align:center;font:900 30px 'Arial Narrow',Arial,sans-serif;letter-spacing:1px;color:#0d0d0d;margin-top:2px;transform:scaleY(1.25)">${exp.placa}</div>
+      <div style="position:absolute;bottom:2px;left:0;right:0;text-align:center;color:${AZUL_PLACA};font:700 8px Arial,sans-serif;letter-spacing:2px">CENTROAMÉRICA</div>
+    </div>`;
     const filas = [
       ["Boleta No.", num], ["Fecha de la falta", `${fecha} · ${horaDe(falta)}`],
       ["Lugar", falta.camName + ", San Pedro Sula, Cortés"],
       ["Falta", KIND_LABEL[falta.kind]], ["Tipificación", legal.texto],
       ["Categoría", `Infracción ${legal.categoria} — Ley de Tránsito (Decreto 205-2005)`],
-      ["Placa", exp.placa], ["Vehículo", `${exp.marca} ${exp.modelo} ${exp.anio}, ${exp.color}`],
+      ["Placa", placaHtml], ["Vehículo", `${exp.marca} ${exp.modelo} ${exp.anio}, ${exp.color}`],
       ["Propietario registral", exp.nombre], ["DNI", exp.dni], ["Licencia", exp.licencia],
       ["Domicilio", exp.direccion],
       ["Reincidencia", exp.previas === 0 ? "No registra" : `${exp.previas} falta(s) previa(s) en 12 meses`],
@@ -708,7 +762,7 @@ function BoletaModal({ falta, fecha, emitida, onEmitir, onVerEvidencia, onClose 
           {row("Lugar", `${falta.camName}, San Pedro Sula`)}
           {row("Tipificación", legal.texto)}
           {row("Categoría", <>Infracción <span className="font-semibold text-danger">{legal.categoria}</span> · Ley de Tránsito (Decreto 205-2005)</>)}
-          {row("Placa", <span className="font-mono text-[15px] font-bold tracking-[0.12em] text-text">{exp.placa}</span>)}
+          {row("Placa", <Placa placa={exp.placa} size={1.3} />)}
           {row("Vehículo", `${exp.marca} ${exp.modelo} ${exp.anio} · ${exp.color}`)}
           {row("Propietario", <>{exp.nombre} <span className="font-mono text-[11px] text-text-faint">· DNI {exp.dni} · Lic. {exp.licencia}</span></>)}
           {row("Reincidencia", exp.previas === 0 ? "No registra faltas previas"
