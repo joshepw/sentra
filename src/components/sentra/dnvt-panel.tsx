@@ -4,11 +4,12 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { SentraLogoMark, SentraWordmark } from "@/components/sentra/ui";
 
-// Panel DNVT: registro administrativo del día — TODAS las faltas de todas las cámaras en una
-// tabla (correlativo, hora, cámara, tipo, vehículo), con evidencia en video (cajas dibujadas
-// sobre el crudo, la falta resaltada), estado administrativo por falta (pendiente / boleta
-// emitida / desestimada + nota, se guarda en el backend) y exportación a CSV. Las faltas que
-// el control de calidad marcó incorrectas se ocultan por defecto (toggle para verlas).
+// Panel DNVT (demo): registro administrativo del día — TODAS las faltas de todas las cámaras
+// en una tabla, con evidencia en video (cajas sobre el crudo, la falta resaltada), EXPEDIENTE
+// SIMULADO por vehículo (placa + propietario ficticios, generados determinísticamente a partir
+// de la falta: siempre los mismos para la misma falta, sin base de datos) y flujo de emisión
+// de boleta: tipificación real de la Ley de Tránsito (Decreto 205-2005), multa con recargo por
+// reincidencia, boleta imprimible. Todo dato personal está rotulado como FICTICIO.
 
 const API = process.env.NEXT_PUBLIC_SENTRA_API ?? "https://transito.meteoro.xyz";
 
@@ -45,6 +46,75 @@ const QA_BADGE: Record<string, { label: string; cls: string }> = {
   dudosa: { label: "En análisis", cls: "text-warning" },
 };
 
+// ---- Tipificación legal (Ley de Tránsito, Decreto 205-2005) ----
+// El cruce en rojo y el irrespeto a la señalización vial son infracciones GRAVES (numeral 10
+// del listado de infracciones graves); la multa de las graves es L 600.00 (Art. 101). La
+// reincidencia dentro del año aumenta la multa 50% y suspende la licencia 6 meses.
+const LEGAL: Record<string, { texto: string; categoria: string }> = {
+  rojo: { texto: "Irrespetar la señal de alto o la luz roja de un semáforo (infracciones graves, num. 10)", categoria: "GRAVE" },
+  giro: { texto: "Irrespetar la señalización vial y otros instrumentos de control de tráfico (infracciones graves, num. 10)", categoria: "GRAVE" },
+  uturn: { texto: "Irrespetar la señalización vial — vuelta en U en tramo no permitido (infracciones graves, num. 10)", categoria: "GRAVE" },
+};
+const MULTA_GRAVE = 600;   // L 600.00, Art. 101 Ley de Tránsito
+
+// ---- Expediente FICTICIO determinístico (misma falta -> mismos datos, sin base de datos) ----
+type Expediente = {
+  placa: string; marca: string; modelo: string; color: string; anio: number;
+  nombre: string; dni: string; licencia: string; direccion: string; telefono: string;
+  previas: number;   // faltas previas en el año (para el recargo por reincidencia)
+};
+const hashSeed = (s: string) => {
+  let h = 2166136261;
+  for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); }
+  return h >>> 0;
+};
+const mkRng = (seed: number) => () => {
+  seed = (seed + 0x6d2b79f5) | 0;
+  let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+  t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+  return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+};
+const NOMBRES = ["Carlos Alberto", "José Luis", "Marvin Alexander", "Denis Omar", "Wilmer Antonio",
+  "María José", "Ana Lucía", "Karla Patricia", "Sandra Elizabeth", "Jorge Armando",
+  "Héctor Manuel", "Fanny Carolina", "Óscar Rolando", "Elvin Josué", "Gabriela Alejandra"];
+const APELLIDOS = ["Mejía", "Paz", "Rivera", "Cruz", "Hernández", "López", "Castro", "Zelaya",
+  "Pineda", "Fúnez", "Membreño", "Carranza", "Sabillón", "Interiano", "Bográn"];
+const COLONIAS = ["Col. Jardines del Valle", "Barrio Guamilito", "Col. Trejo", "Col. Universidad",
+  "Col. Fesitranh", "Barrio Barandillas", "Res. Villas del Sol", "Col. Las Palmas",
+  "Col. Satélite", "Col. Moderna"];
+const AUTOS = [["Toyota", "Corolla"], ["Honda", "Civic"], ["Hyundai", "Accent"], ["Nissan", "Sentra"],
+  ["Kia", "Rio"], ["Toyota", "Hilux"], ["Mitsubishi", "Lancer"], ["Suzuki", "Swift"]];
+const MOTOS = [["Honda", "CG-125"], ["Yamaha", "YBR-125"], ["Suzuki", "GN-125"], ["Freedom", "Fénix 150"],
+  ["Serpento", "Cobra 200"], ["Génesis", "GXT-150"]];
+const BUSES = [["Toyota", "Coaster"], ["Hyundai", "County"], ["Blue Bird", "Vision"]];
+const CAMIONES = [["Isuzu", "NPR"], ["Hino", "Dutro"], ["Freightliner", "M2"]];
+const COLORES = ["blanco", "gris", "negro", "rojo", "azul", "plateado"];
+const LETRAS = "ABCDEFGHJKLMNPRSTUVXYZ";
+
+function expedienteDe(f: Falta): Expediente {
+  const r = mkRng(hashSeed(f.key ?? `${f.cam}:${f.kind}:${f.id}:${f.hh}`));
+  const pick = <T,>(a: T[]) => a[Math.floor(r() * a.length)];
+  const dig = (n: number) => String(Math.floor(r() * 10 ** n)).padStart(n, "0");
+  const tipo = f.tipo ?? "Auto";
+  const pool = tipo === "Moto" ? MOTOS : tipo === "Bus" ? BUSES : tipo === "Camión" ? CAMIONES : AUTOS;
+  const pref = tipo === "Moto" ? "M" : tipo === "Bus" ? "A" : tipo === "Camión" ? "C" : pick(["H", "P"]);
+  const [marca, modelo] = pick(pool);
+  const pv = r();
+  return {
+    placa: `${pref}${pick([...LETRAS])}${pick([...LETRAS])} ${dig(4)}`,
+    marca, modelo, color: pick(COLORES), anio: 2005 + Math.floor(r() * 19),
+    nombre: `${pick(NOMBRES)} ${pick(APELLIDOS)} ${pick(APELLIDOS)}`,
+    dni: `0501-${1965 + Math.floor(r() * 38)}-${dig(5)}`,
+    licencia: `L-${dig(8)}`,
+    direccion: `${pick(COLONIAS)}, San Pedro Sula, Cortés`,
+    telefono: `${pick(["9", "8", "3"])}${dig(3)}-${dig(4)}`,
+    previas: pv < 0.6 ? 0 : pv < 0.9 ? 1 : 2,
+  };
+}
+// multa con recargo por reincidencia (Ley de Tránsito: 2a vez en el año = +50% + suspensión)
+const multaDe = (exp: Expediente) => exp.previas === 0 ? MULTA_GRAVE
+  : exp.previas === 1 ? MULTA_GRAVE * 1.5 : MULTA_GRAVE * 2;
+
 // "1 Calle - 14 Avenida N.O (Seguros Atlantida)" -> "Seguros Atlantida"
 const shortName = (nombre: string, id: string) => {
   const paren = nombre.match(/\(([^)]+)\)/)?.[1] ?? nombre.split("-").pop()?.trim() ?? id;
@@ -54,17 +124,20 @@ const shortName = (nombre: string, id: string) => {
 const horaDe = (f: Infr) =>
   `${f.hh}:${String(Math.floor(f.t / 60)).padStart(2, "0")}:${String(Math.floor(f.t % 60)).padStart(2, "0")}`;
 const corr = (n: number) => `F-${String(n).padStart(3, "0")}`;
+const boletaNum = (fecha: string, n: number) => `B-${fecha.replaceAll("-", "")}-${String(n).padStart(3, "0")}`;
+const lps = (n: number) => `L ${n.toLocaleString("es-HN", { minimumFractionDigits: 2 })}`;
 
 export function DnvtPanel({ token, api = API }: { token: string; api?: string }) {
   const [data, setData] = useState<Dia | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [reviews, setReviews] = useState<Record<string, Rev>>({});
   const [estados, setEstados] = useState<Record<string, Estado>>({});
-  const [modal, setModal] = useState<Falta | null>(null);
+  const [modal, setModal] = useState<{ tipo: "evidencia" | "boleta"; falta: Falta } | null>(null);
   const [fCam, setFCam] = useState("all");
   const [fKind, setFKind] = useState("all");
   const [fEstado, setFEstado] = useState("all");
   const [fHour, setFHour] = useState("all");
+  const [busca, setBusca] = useState("");
   const [conQA, setConQA] = useState(false);   // mostrar también las descartadas por control de calidad
   const [page, setPage] = useState(0);
   const PAGE = 50;
@@ -78,7 +151,7 @@ export function DnvtPanel({ token, api = API }: { token: string; api?: string })
     fetch(`${api}/api/dnvt-status${q}`).then((r) => r.json()).then((m) => setEstados(m ?? {})).catch(() => {});
   }, [token, api]);
 
-  useEffect(() => { setPage(0); }, [fCam, fKind, fEstado, fHour, conQA]);
+  useEffect(() => { setPage(0); }, [fCam, fKind, fEstado, fHour, conQA, busca]);
 
   // todas las faltas del día, ordenadas por hora; el correlativo se asigna ANTES de filtrar
   // (así F-042 es F-042 en cualquier vista y en el CSV)
@@ -97,11 +170,15 @@ export function DnvtPanel({ token, api = API }: { token: string; api?: string })
   // base = faltas visibles (post control de calidad); sobre esa base van KPIs y gráfico
   const visibles = useMemo(() => faltas.filter((f) => conQA || qaDe(f) !== "incorrecta"),
     [faltas, reviews, conQA]);   // eslint-disable-line react-hooks/exhaustive-deps
-  const preHour = useMemo(() => visibles.filter((f) =>
-    (fCam === "all" || f.cam === fCam) &&
-    (fKind === "all" || f.kind === fKind) &&
-    (fEstado === "all" || estadoDe(f) === fEstado)),
-    [visibles, fCam, fKind, fEstado, estados]);   // eslint-disable-line react-hooks/exhaustive-deps
+  const preHour = useMemo(() => {
+    const q = busca.trim().toLowerCase();
+    return visibles.filter((f) =>
+      (fCam === "all" || f.cam === fCam) &&
+      (fKind === "all" || f.kind === fKind) &&
+      (fEstado === "all" || estadoDe(f) === fEstado) &&
+      (!q || expedienteDe(f).placa.toLowerCase().includes(q) || String(f.id).includes(q)
+        || expedienteDe(f).nombre.toLowerCase().includes(q)));
+  }, [visibles, fCam, fKind, fEstado, busca, estados]);   // eslint-disable-line react-hooks/exhaustive-deps
   const filtered = useMemo(() => preHour.filter((f) => fHour === "all" || f.hh === fHour), [preHour, fHour]);
 
   const pages = Math.max(1, Math.ceil(filtered.length / PAGE));
@@ -129,15 +206,26 @@ export function DnvtPanel({ token, api = API }: { token: string; api?: string })
     } catch {}
   }, [estados, api, token]);
 
+  const emitir = useCallback((f: Falta) => {
+    if (!data) return;
+    const exp = expedienteDe(f);
+    void postEstado(f, { estado: "boleta", nota: `${boletaNum(data.fecha, f.n)} · ${lps(multaDe(exp))} · placa ${exp.placa}` });
+  }, [data, postEstado]);
+
   const exportCsv = () => {
     if (!data) return;
     const esc = (s: unknown) => `"${String(s ?? "").replace(/"/g, '""')}"`;
-    const rows = filtered.map((f) => [
-      corr(f.n), data.fecha, horaDe(f), f.camName, KIND_LABEL[f.kind], f.tipo ?? "", f.id,
-      estadoDe(f), (f.key && estados[f.key]?.nota) || "",
-      qaDe(f) ? QA_BADGE[qaDe(f)!].label : "", f.why ?? "",
-    ].map(esc).join(","));
+    const rows = filtered.map((f) => {
+      const exp = expedienteDe(f);
+      return [
+        corr(f.n), data.fecha, horaDe(f), f.camName, KIND_LABEL[f.kind], f.tipo ?? "", f.id,
+        exp.placa, `${exp.marca} ${exp.modelo} ${exp.color}`, exp.nombre, exp.dni,
+        estadoDe(f), (f.key && estados[f.key]?.nota) || "",
+        qaDe(f) ? QA_BADGE[qaDe(f)!].label : "", f.why ?? "",
+      ].map(esc).join(",");
+    });
     const head = ["correlativo", "fecha", "hora", "camara", "falta", "vehiculo", "id_vehiculo",
+      "placa_FICTICIA", "descripcion_vehiculo_FICTICIA", "propietario_FICTICIO", "dni_FICTICIO",
       "estado_dnvt", "nota", "control_calidad", "motivo_deteccion"].join(",");
     const blob = new Blob(["﻿" + [head, ...rows].join("\n")], { type: "text/csv;charset=utf-8" });
     const a = document.createElement("a");
@@ -164,10 +252,15 @@ export function DnvtPanel({ token, api = API }: { token: string; api?: string })
           <div className="mt-2 font-display text-[26px] font-extrabold capitalize leading-tight text-text">{fecha}</div>
           <div className="mt-1 font-mono text-[11px] text-text-faint">{data.totales.n_cams} cámaras · corredor 1a Calle / Bulevar Morazán · San Pedro Sula</div>
         </div>
-        <button onClick={exportCsv}
-          className="cursor-pointer rounded-lg border border-accent px-4 py-2.5 font-mono text-[12px] font-semibold text-accent transition-colors hover:bg-[#123a2a]">
-          ⬇ Exportar CSV ({nf(filtered.length)})
-        </button>
+        <div className="flex flex-col items-end gap-2">
+          <button onClick={exportCsv}
+            className="cursor-pointer rounded-lg border border-accent px-4 py-2.5 font-mono text-[12px] font-semibold text-accent transition-colors hover:bg-[#123a2a]">
+            ⬇ Exportar CSV ({nf(filtered.length)})
+          </button>
+          <span className="rounded-md border border-warning/40 bg-[#2a2410] px-2.5 py-1 font-mono text-[9px] font-bold uppercase tracking-[0.14em] text-warning">
+            Demo · placas y personas ficticias
+          </span>
+        </div>
       </div>
 
       {/* KPIs del día */}
@@ -226,11 +319,16 @@ export function DnvtPanel({ token, api = API }: { token: string; api?: string })
             <option value="desestimada">Desestimada</option>
           </select>
         </label>
+        <label className="flex flex-col gap-2">
+          <span className="font-mono text-[9px] uppercase tracking-[0.16em] text-text-faint">Placa / ID / nombre</span>
+          <input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="buscar…"
+            className={`${selCls} w-[170px] placeholder:text-text-faint`} />
+        </label>
         <button onClick={() => setConQA((s) => !s)} className="flex items-center gap-2.5 py-2.5 font-sans text-[13px] text-text">
           <span className={`grid size-4 place-items-center rounded border ${conQA ? "border-warning bg-warning text-[#081411]" : "border-[var(--border-strong)]"}`}>{conQA ? "✓" : ""}</span>
           Incluir descartadas por control de calidad
         </button>
-        <button onClick={() => { setFCam("all"); setFKind("all"); setFEstado("all"); setFHour("all"); setConQA(false); }}
+        <button onClick={() => { setFCam("all"); setFKind("all"); setFEstado("all"); setFHour("all"); setBusca(""); setConQA(false); }}
           className="py-2.5 font-sans text-[13px] text-text-muted transition-colors hover:text-accent">Limpiar</button>
       </div>
 
@@ -242,10 +340,10 @@ export function DnvtPanel({ token, api = API }: { token: string; api?: string })
           {filtered.length !== visibles.length && <div className="font-mono text-[11px] text-text-faint">de {nf(visibles.length)} del día</div>}
         </div>
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[980px] border-collapse text-left">
+          <table className="w-full min-w-[1080px] border-collapse text-left">
             <thead>
               <tr className="border-b border-[var(--border)] font-mono text-[9px] uppercase tracking-[0.14em] text-text-faint">
-                {["Nº", "Hora", "Cámara / cruce", "Falta", "Vehículo", "Calidad", "Estado DNVT", "Nota", ""].map((h, i) => (
+                {["Nº", "Hora", "Cámara / cruce", "Falta", "Placa*", "Vehículo", "Calidad", "Estado DNVT", ""].map((h, i) => (
                   <th key={i} className="px-4 py-3 font-medium">{h}</th>
                 ))}
               </tr>
@@ -254,7 +352,7 @@ export function DnvtPanel({ token, api = API }: { token: string; api?: string })
               {slice.map((f) => {
                 const est = estadoDe(f);
                 const qa = qaDe(f);
-                const nota = (f.key && estados[f.key]?.nota) || "";
+                const exp = expedienteDe(f);
                 return (
                   <tr key={f.key ?? `${f.cam}:${f.kind}:${f.id}:${f.hh}`}
                     className={`border-b border-[var(--border)] transition-colors hover:bg-bg-card ${qa === "incorrecta" ? "opacity-50" : ""}`}>
@@ -265,34 +363,30 @@ export function DnvtPanel({ token, api = API }: { token: string; api?: string })
                       <span className={`inline-flex items-center gap-1.5 rounded-md border border-[var(--border)] px-2 py-1 font-mono text-[10px] font-bold ${f.kind === "rojo" ? "bg-[#2a0f14] text-[#ff8598]" : "bg-[#2a1512] text-danger"}`}>
                         {KIND_TAG[f.kind]}
                       </span>
-                      <span className="ml-2 font-sans text-[12px] text-text-muted">{KIND_LABEL[f.kind]}</span>
                     </td>
-                    <td className="px-4 py-2.5 font-mono text-[11px] text-text-muted">{f.tipo ?? "—"} #{f.id}</td>
+                    <td className="px-4 py-2.5 font-mono text-[11.5px] font-semibold tracking-wide text-text">{exp.placa}</td>
+                    <td className="px-4 py-2.5 font-sans text-[12px] text-text-muted">{exp.marca} {exp.modelo} · {f.tipo ?? "—"} <span className="font-mono text-[10px] text-text-faint">#{f.id}</span></td>
                     <td className={`px-4 py-2.5 font-mono text-[10.5px] ${qa ? QA_BADGE[qa].cls : "text-text-faint"}`}>{qa ? QA_BADGE[qa].label : "—"}</td>
                     <td className="px-4 py-2.5">
-                      <div className="flex gap-1">
-                        {ESTADOS.map((e) => (
-                          <button key={e.k} onClick={() => postEstado(f, { estado: e.k })} title={e.label}
-                            className={`cursor-pointer rounded-md border px-2 py-1 font-mono text-[9.5px] transition-colors ${est === e.k ? e.on : "border-[var(--border)] bg-bg-input text-text-faint hover:border-text-muted"}`}>
-                            {e.k === "boleta" ? "Boleta" : e.k === "desestimada" ? "Desest." : "Pend."}
-                          </button>
-                        ))}
+                      {est === "boleta" ? (
+                        <span className="rounded-md border border-accent bg-[#123a2a] px-2 py-1 font-mono text-[10px] text-accent">Boleta emitida</span>
+                      ) : est === "desestimada" ? (
+                        <span className="rounded-md border border-danger bg-[#2a1512] px-2 py-1 font-mono text-[10px] text-danger">Desestimada</span>
+                      ) : (
+                        <span className="rounded-md border border-[var(--border)] bg-bg-input px-2 py-1 font-mono text-[10px] text-text-faint">Pendiente</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-2.5">
+                      <div className="flex gap-1.5">
+                        <button onClick={() => setModal({ tipo: "evidencia", falta: f })}
+                          className="cursor-pointer whitespace-nowrap rounded-md border border-[var(--border-strong)] px-2.5 py-1.5 font-mono text-[10px] text-text-muted transition-colors hover:border-accent hover:text-accent">
+                          ▶ Evidencia
+                        </button>
+                        <button onClick={() => setModal({ tipo: "boleta", falta: f })}
+                          className={`cursor-pointer whitespace-nowrap rounded-md border px-2.5 py-1.5 font-mono text-[10px] transition-colors ${est === "boleta" ? "border-[var(--border)] text-text-faint hover:border-text-muted" : "border-accent text-accent hover:bg-[#123a2a]"}`}>
+                          {est === "boleta" ? "Ver boleta" : "⚑ Emitir"}
+                        </button>
                       </div>
-                    </td>
-                    <td className="px-4 py-2.5">
-                      <input
-                        value={nota}
-                        placeholder="nota…"
-                        onChange={(e) => f.key && setEstados((s) => ({ ...s, [f.key!]: { estado: s[f.key!]?.estado ?? "pendiente", nota: e.target.value } }))}
-                        onBlur={() => postEstado(f, {})}
-                        className="w-[130px] rounded-md border border-[var(--border)] bg-bg-input px-2 py-1.5 font-mono text-[10.5px] text-text outline-none placeholder:text-text-faint focus:border-accent"
-                      />
-                    </td>
-                    <td className="px-4 py-2.5">
-                      <button onClick={() => setModal(f)}
-                        className="cursor-pointer whitespace-nowrap rounded-md border border-[var(--border-strong)] px-2.5 py-1.5 font-mono text-[10px] text-text-muted transition-colors hover:border-accent hover:text-accent">
-                        ▶ Evidencia
-                      </button>
                     </td>
                   </tr>
                 );
@@ -303,18 +397,29 @@ export function DnvtPanel({ token, api = API }: { token: string; api?: string })
             </tbody>
           </table>
         </div>
-        {pages > 1 && (
-          <div className="flex items-center justify-center gap-2 border-t border-[var(--border)] py-4">
-            <button onClick={() => setPage(cur - 1)} disabled={cur === 0} className={pageBtn}>‹ Anterior</button>
-            <span className="px-2 font-mono text-[12px] text-text-muted">{cur + 1} / {pages}</span>
-            <button onClick={() => setPage(cur + 1)} disabled={cur >= pages - 1} className={pageBtn}>Siguiente ›</button>
-          </div>
-        )}
+        <div className="flex flex-wrap items-center justify-between gap-2 border-t border-[var(--border)] px-5 py-3">
+          <span className="font-mono text-[9px] uppercase tracking-[0.12em] text-text-faint">* Placas, propietarios y documentos son datos simulados de demostración</span>
+          {pages > 1 && (
+            <div className="flex items-center gap-2">
+              <button onClick={() => setPage(cur - 1)} disabled={cur === 0} className={pageBtn}>‹ Anterior</button>
+              <span className="px-2 font-mono text-[12px] text-text-muted">{cur + 1} / {pages}</span>
+              <button onClick={() => setPage(cur + 1)} disabled={cur >= pages - 1} className={pageBtn}>Siguiente ›</button>
+            </div>
+          )}
+        </div>
       </div>
 
-      {modal && (
-        <EvidenceModal api={api} token={token} falta={modal} media={media}
-          estado={estadoDe(modal)} onEstado={(k) => void postEstado(modal, { estado: k })}
+      {modal?.tipo === "evidencia" && (
+        <EvidenceModal falta={modal.falta} media={media} fecha={data.fecha}
+          estado={estadoDe(modal.falta)}
+          onBoleta={() => setModal({ tipo: "boleta", falta: modal.falta })}
+          onDesestimar={() => { void postEstado(modal.falta, { estado: "desestimada" }); }}
+          onClose={() => setModal(null)} />
+      )}
+      {modal?.tipo === "boleta" && (
+        <BoletaModal falta={modal.falta} fecha={data.fecha} emitida={estadoDe(modal.falta) === "boleta"}
+          onEmitir={() => emitir(modal.falta)}
+          onVerEvidencia={() => setModal({ tipo: "evidencia", falta: modal.falta })}
           onClose={() => setModal(null)} />
       )}
     </DnvtShell>
@@ -361,15 +466,17 @@ function HourBars({ byHour, current, onPick }: {
 }
 
 // Visor de evidencia: video de la hora con cajas sobre el crudo; la falta va resaltada en rojo
-// y el resto de vehículos apagados. Arranca 3 s antes del momento de la falta.
-function EvidenceModal({ api, token, falta, media, estado, onEstado, onClose }: {
-  api: string; token: string; falta: Falta; media: (p: string) => string;
-  estado: string; onEstado: (k: string) => void; onClose: () => void;
+// y el resto de vehículos apagados. Arranca 3 s antes del momento de la falta. Incluye el
+// expediente simulado del vehículo y el paso a emitir la boleta.
+function EvidenceModal({ falta, media, fecha, estado, onBoleta, onDesestimar, onClose }: {
+  falta: Falta; media: (p: string) => string; fecha: string; estado: string;
+  onBoleta: () => void; onDesestimar: () => void; onClose: () => void;
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const detRef = useRef<Det | null>(null);
   const [loading, setLoading] = useState(true);
+  const exp = expedienteDe(falta);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
@@ -442,7 +549,7 @@ function EvidenceModal({ api, token, falta, media, estado, onEstado, onClose }: 
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-[rgba(4,10,8,0.82)] p-4 backdrop-blur-sm" onClick={onClose}>
-      <div className="w-full max-w-[880px] overflow-hidden rounded-2xl border border-[var(--border-strong)] bg-bg-panel" onClick={(e) => e.stopPropagation()}>
+      <div className="max-h-[94vh] w-full max-w-[980px] overflow-y-auto overflow-x-hidden rounded-2xl border border-[var(--border-strong)] bg-bg-panel" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between gap-3 border-b border-[var(--border)] px-5 py-4">
           <div className="min-w-0">
             <div className="font-mono text-[11px] font-semibold uppercase tracking-[0.14em] text-text-muted">
@@ -466,16 +573,164 @@ function EvidenceModal({ api, token, falta, media, estado, onEstado, onClose }: 
         </div>
         <div className="px-5 py-4">
           {falta.why && <p className="mb-3 rounded-md bg-bg-card px-3 py-2.5 font-mono text-[11px] leading-relaxed text-text-muted">↳ {falta.why}</p>}
+
+          {/* expediente simulado del vehículo */}
+          <div className="mb-3 overflow-hidden rounded-xl border border-[var(--border-strong)]">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--border)] bg-bg-card px-4 py-2.5">
+              <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.14em] text-text-muted">Expediente del vehículo</span>
+              <span className="rounded bg-[#2a2410] px-2 py-0.5 font-mono text-[9px] font-bold uppercase tracking-[0.12em] text-warning">Datos ficticios · demo</span>
+            </div>
+            <div className="grid gap-x-6 gap-y-2.5 px-4 py-3.5 sm:grid-cols-2">
+              <div>
+                <div className="font-mono text-[9px] uppercase tracking-[0.14em] text-text-faint">Placa</div>
+                <div className="mt-0.5 inline-block rounded border border-[var(--border-strong)] bg-bg-input px-2.5 py-1 font-mono text-[15px] font-bold tracking-[0.12em] text-text">{exp.placa}</div>
+              </div>
+              <div>
+                <div className="font-mono text-[9px] uppercase tracking-[0.14em] text-text-faint">Vehículo</div>
+                <div className="mt-0.5 font-sans text-[13px] text-text">{exp.marca} {exp.modelo} {exp.anio} · {exp.color}</div>
+              </div>
+              <div>
+                <div className="font-mono text-[9px] uppercase tracking-[0.14em] text-text-faint">Propietario registral</div>
+                <div className="mt-0.5 font-sans text-[13px] text-text">{exp.nombre}</div>
+                <div className="font-mono text-[10.5px] text-text-muted">DNI {exp.dni} · Lic. {exp.licencia}</div>
+              </div>
+              <div>
+                <div className="font-mono text-[9px] uppercase tracking-[0.14em] text-text-faint">Domicilio / contacto</div>
+                <div className="mt-0.5 font-sans text-[12.5px] text-text-muted">{exp.direccion}</div>
+                <div className="font-mono text-[10.5px] text-text-muted">Tel. {exp.telefono}</div>
+              </div>
+              <div className="sm:col-span-2">
+                <div className="font-mono text-[9px] uppercase tracking-[0.14em] text-text-faint">Historial (últimos 12 meses)</div>
+                <div className={`mt-0.5 font-sans text-[12.5px] ${exp.previas > 0 ? "text-warning" : "text-text-muted"}`}>
+                  {exp.previas === 0 ? "Sin faltas previas registradas"
+                    : exp.previas === 1 ? "1 falta previa — reincidencia: multa +50% y suspensión de licencia (6 meses)"
+                    : "2 faltas previas — reincidencia agravada: multa +100%"}
+                </div>
+              </div>
+            </div>
+          </div>
+
           <div className="flex flex-wrap items-center gap-2">
             <button onClick={rejump} className="cursor-pointer rounded-md border border-[var(--border-strong)] px-3 py-1.5 font-mono text-[11px] text-text-muted transition-colors hover:border-accent hover:text-accent">⟲ Volver a la falta</button>
-            <span className="mx-1 font-mono text-[10px] uppercase tracking-[0.14em] text-text-faint">Estado:</span>
-            {ESTADOS.map((e) => (
-              <button key={e.k} onClick={() => onEstado(e.k)}
-                className={`cursor-pointer rounded-md border px-2.5 py-1.5 font-mono text-[10.5px] transition-colors ${estado === e.k ? e.on : "border-[var(--border)] bg-bg-input text-text-faint hover:border-text-muted"}`}>
-                {e.label}
-              </button>
-            ))}
+            <span className="flex-1" />
+            <button onClick={() => { onDesestimar(); onClose(); }}
+              className="cursor-pointer rounded-md border border-danger px-3 py-2 font-mono text-[11px] text-danger transition-colors hover:bg-[#2a1512]">
+              Desestimar falta
+            </button>
+            <button onClick={onBoleta}
+              className={`cursor-pointer rounded-md border px-3.5 py-2 font-mono text-[11px] font-semibold transition-colors ${estado === "boleta" ? "border-[var(--border-strong)] text-text-muted hover:border-accent hover:text-accent" : "border-accent bg-[#123a2a] text-accent hover:brightness-110"}`}>
+              {estado === "boleta" ? "Ver boleta emitida" : "⚑ Emitir infracción"}
+            </button>
           </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Boleta de infracción (demo): previsualización con la tipificación real de la Ley de
+// Tránsito, multa con recargo por reincidencia y datos ficticios del expediente. "Confirmar"
+// guarda el estado en el backend; "Imprimir" abre una versión de papel en ventana nueva.
+function BoletaModal({ falta, fecha, emitida, onEmitir, onVerEvidencia, onClose }: {
+  falta: Falta; fecha: string; emitida: boolean;
+  onEmitir: () => void; onVerEvidencia: () => void; onClose: () => void;
+}) {
+  const exp = expedienteDe(falta);
+  const legal = LEGAL[falta.kind];
+  const monto = multaDe(exp);
+  const num = boletaNum(fecha, falta.n);
+  const [ok, setOk] = useState(emitida);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  const imprimir = () => {
+    const w = window.open("", "_blank", "width=760,height=900");
+    if (!w) return;
+    const filas = [
+      ["Boleta No.", num], ["Fecha de la falta", `${fecha} · ${horaDe(falta)}`],
+      ["Lugar", falta.camName + ", San Pedro Sula, Cortés"],
+      ["Falta", KIND_LABEL[falta.kind]], ["Tipificación", legal.texto],
+      ["Categoría", `Infracción ${legal.categoria} — Ley de Tránsito (Decreto 205-2005)`],
+      ["Placa", exp.placa], ["Vehículo", `${exp.marca} ${exp.modelo} ${exp.anio}, ${exp.color}`],
+      ["Propietario registral", exp.nombre], ["DNI", exp.dni], ["Licencia", exp.licencia],
+      ["Domicilio", exp.direccion],
+      ["Reincidencia", exp.previas === 0 ? "No registra" : `${exp.previas} falta(s) previa(s) en 12 meses`],
+      ["Multa", lps(monto) + (exp.previas === 1 ? " (base L 600.00 + 50% reincidencia; conlleva suspensión de licencia 6 meses)" : exp.previas === 2 ? " (base L 600.00 + 100% reincidencia agravada)" : " (Art. 101, infracción grave)")],
+      ["Evidencia", `Video cámara "${falta.camShort}", registro ${corr(falta.n)}, vehículo rastreado #${falta.id}`],
+    ].map(([k, v]) => `<tr><td style="padding:6px 10px;border:1px solid #bbb;font-weight:600;white-space:nowrap">${k}</td><td style="padding:6px 10px;border:1px solid #bbb">${v}</td></tr>`).join("");
+    w.document.write(`<!doctype html><html><head><title>${num} (DEMO)</title></head>
+<body style="font-family:Georgia,serif;color:#111;margin:36px;position:relative">
+<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none">
+  <div style="transform:rotate(-28deg);font-size:54px;font-weight:bold;color:rgba(180,30,30,.13);border:6px solid rgba(180,30,30,.13);padding:14px 30px;border-radius:12px">DEMOSTRACIÓN</div>
+</div>
+<div style="text-align:center;border-bottom:3px double #333;padding-bottom:12px">
+  <div style="font-size:13px;letter-spacing:.18em;font-weight:bold">SISTEMA SENTTRA — DEMO</div>
+  <div style="font-size:19px;font-weight:bold;margin-top:6px">BOLETA DE INFRACCIÓN DE TRÁNSITO</div>
+  <div style="font-size:12px;margin-top:4px">Documento de demostración · Todos los datos personales, placas y documentos son FICTICIOS</div>
+</div>
+<table style="border-collapse:collapse;width:100%;margin-top:18px;font-size:13.5px">${filas}</table>
+<div style="margin-top:16px;font-size:12px;line-height:1.5">El presunto infractor dispone del plazo legal para pagar o impugnar esta boleta ante la autoridad competente. La reincidencia dentro del período de un (1) año aumenta la multa y puede conllevar la suspensión de la licencia de conducir (Ley de Tránsito, Decreto 205-2005).</div>
+<div style="display:flex;justify-content:space-between;margin-top:52px;font-size:12px">
+  <div style="border-top:1px solid #333;padding-top:6px;width:40%;text-align:center">Agente / sistema emisor</div>
+  <div style="border-top:1px solid #333;padding-top:6px;width:40%;text-align:center">Recibí copia (presunto infractor)</div>
+</div>
+<script>window.print()</script></body></html>`);
+    w.document.close();
+  };
+
+  const row = (k: string, v: React.ReactNode, strong = false) => (
+    <div className="flex gap-3 border-b border-[var(--border)] px-4 py-2.5 last:border-b-0">
+      <span className="w-[150px] shrink-0 font-mono text-[10px] uppercase tracking-[0.12em] text-text-faint">{k}</span>
+      <span className={`min-w-0 font-sans text-[13px] ${strong ? "font-semibold text-text" : "text-text-muted"}`}>{v}</span>
+    </div>
+  );
+
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-[rgba(4,10,8,0.82)] p-4 backdrop-blur-sm" onClick={onClose}>
+      <div className="max-h-[94vh] w-full max-w-[680px] overflow-y-auto rounded-2xl border border-[var(--border-strong)] bg-bg-panel" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between gap-3 border-b border-[var(--border)] px-5 py-4">
+          <div>
+            <div className="font-mono text-[11px] font-semibold uppercase tracking-[0.14em] text-text-muted">
+              Boleta de infracción · <span className="text-text">{num}</span>
+            </div>
+            <div className="mt-1 font-mono text-[10px] text-warning">demo — placas, personas y documentos ficticios</div>
+          </div>
+          <button onClick={onClose} className="cursor-pointer rounded-md border border-[var(--border)] px-2.5 py-1.5 font-mono text-[11px] text-text-muted transition-colors hover:border-danger hover:text-danger">✕ Cerrar</button>
+        </div>
+
+        <div className="m-5 overflow-hidden rounded-xl border border-[var(--border-strong)]">
+          {row("Registro", <>{corr(falta.n)} · {KIND_LABEL[falta.kind]}</>, true)}
+          {row("Fecha y hora", `${fecha} · ${horaDe(falta)}`)}
+          {row("Lugar", `${falta.camName}, San Pedro Sula`)}
+          {row("Tipificación", legal.texto)}
+          {row("Categoría", <>Infracción <span className="font-semibold text-danger">{legal.categoria}</span> · Ley de Tránsito (Decreto 205-2005)</>)}
+          {row("Placa", <span className="font-mono text-[15px] font-bold tracking-[0.12em] text-text">{exp.placa}</span>)}
+          {row("Vehículo", `${exp.marca} ${exp.modelo} ${exp.anio} · ${exp.color}`)}
+          {row("Propietario", <>{exp.nombre} <span className="font-mono text-[11px] text-text-faint">· DNI {exp.dni} · Lic. {exp.licencia}</span></>)}
+          {row("Reincidencia", exp.previas === 0 ? "No registra faltas previas"
+            : exp.previas === 1 ? <span className="text-warning">1 falta previa — multa +50% y suspensión de licencia 6 meses</span>
+            : <span className="text-warning">2 faltas previas — multa +100%</span>)}
+          {row("Multa", <span className="font-display text-[19px] font-extrabold text-danger">{lps(monto)}</span>, true)}
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2 px-5 pb-5">
+          <button onClick={onVerEvidencia} className="cursor-pointer rounded-md border border-[var(--border-strong)] px-3 py-2 font-mono text-[11px] text-text-muted transition-colors hover:border-accent hover:text-accent">▶ Ver evidencia</button>
+          <span className="flex-1" />
+          {ok ? (
+            <>
+              <span className="rounded-md border border-accent bg-[#123a2a] px-3 py-2 font-mono text-[11px] text-accent">✓ Boleta emitida</span>
+              <button onClick={imprimir} className="cursor-pointer rounded-md border border-[var(--border-strong)] px-3.5 py-2 font-mono text-[11px] text-text transition-colors hover:border-accent hover:text-accent">⎙ Imprimir</button>
+            </>
+          ) : (
+            <button onClick={() => { onEmitir(); setOk(true); }}
+              className="cursor-pointer rounded-lg bg-accent px-4 py-2.5 font-display text-[13px] font-bold text-[#062017] transition-opacity hover:opacity-90">
+              ⚑ Confirmar y emitir boleta
+            </button>
+          )}
         </div>
       </div>
     </div>
@@ -492,7 +747,7 @@ function DnvtShell({ children }: { children: React.ReactNode }) {
           <span className="ml-1 font-mono text-[9px] font-bold uppercase tracking-[0.3em] text-accent">DNVT</span>
         </Link>
         <div className="text-right font-mono text-[11px] leading-relaxed text-text-faint">
-          Dirección Nacional de Vialidad y Transporte<br />registro diario de faltas · San Pedro Sula
+          Dirección Nacional de Vialidad y Transporte<br />registro diario de faltas · San Pedro Sula · <span className="text-warning">demo</span>
         </div>
       </header>
       <main className="mx-auto max-w-[1600px] px-4 py-6 sm:px-6">{children}</main>
