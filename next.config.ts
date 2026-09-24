@@ -1,7 +1,7 @@
 import type { NextConfig } from "next";
 
-// The edge computer owns authentication, video ranges and inference. Keep the
-// whole mount on one browser origin so HttpOnly cookies protect every request.
+// Keep the original Next.js dashboard. Only its protected data, video and
+// authentication requests go to the edge computer, on the same browser origin.
 const edgeOrigin = (
   process.env.SENTTRA_EDGE_ORIGIN ?? "https://senttra.filosofiacodigo.com"
 ).replace(/\/$/, "");
@@ -10,7 +10,11 @@ const nextConfig: NextConfig = {
   async rewrites() {
     return {
       beforeFiles: [
-        { source: "/edge/:path*", destination: `${edgeOrigin}/edge/:path*` },
+        ...["api", "auth", "media"].map((part) => ({
+          source: `/edge/${part}/:path*`,
+          destination: `${edgeOrigin}/edge/${part}/:path*`,
+        })),
+        { source: "/edge/healthz", destination: `${edgeOrigin}/edge/healthz` },
       ],
       afterFiles: [],
       fallback: [],
