@@ -49,3 +49,31 @@ npx vercel --prod
 ## Diseño
 
 El sitio reproduce el handoff de diseño (tema oscuro tipo control room, acento verde `#3dd68c`, tipografías Archivo + IBM Plex). Las referencias originales del ZIP de diseño están en `design-handoff/` (ignorado en git; los assets viven en `public/assets/`).
+
+## Monitor simultáneo en /edge
+
+`https://www.senttra.com/edge` muestra las once grabaciones de 90 segundos,
+sincronizadas con las detecciones y clasificaciones del equipo local. Es una
+reproducción de grabaciones; «Nueva prueba» ejecuta una inferencia compartida.
+El acceso requiere Zitadel y el rol del grupo Senttra.
+
+Next.js reenvía exclusivamente `/edge` y sus rutas al servicio existente
+`https://senttra.filosofiacodigo.com/edge`. Videos con rangos HTTP, eventos SSE,
+sesiones y protección CSRF quedan en ese servicio. Vercel no ejecuta modelos ni
+almacena las grabaciones; las respuestas privadas no se almacenan en caché.
+Los eventos se reconectan antes del límite de 120 segundos del proxy externo.
+El sitio y `/demo` conservan sus rutas actuales.
+
+El backend debe configurar `edge_public_url=https://www.senttra.com/edge` y
+permitir exactamente `https://www.senttra.com/edge/auth/callback` en su aplicación
+OIDC. Las sesiones de este acceso están separadas de las del dominio original.
+Las vistas previas permiten comprobar la pantalla pública; el inicio de sesión
+real corresponde al dominio canónico registrado en Zitadel.
+
+Para una prueba local aislada, `SENTTRA_EDGE_ORIGIN=http://127.0.0.1:8160` permite
+usar un backend de prueba al iniciar Next. Es configuración del servidor, nunca
+una credencial de navegador. Producción usa el origen HTTPS predeterminado.
+
+Actualizaciones del visor solo requieren desplegar este repositorio o reiniciar
+su backend dedicado. No requieren recargar Caddy. Para revertir la integración,
+revertir el commit de `/edge` y desplegar; el servicio original sigue disponible.

@@ -5,6 +5,7 @@ export default function robots(): MetadataRoute.Robots {
     rules: {
       userAgent: "*",
       allow: "/",
+      disallow: "/edge",
     },
     sitemap: "https://senttra.com/sitemap.xml",
     host: "https://senttra.com",
