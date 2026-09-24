@@ -57,7 +57,14 @@ sincronizadas con las detecciones y clasificaciones del equipo local. Es una
 reproducción de grabaciones; «Nueva prueba» ejecuta una inferencia compartida.
 El acceso requiere Zitadel y el rol del grupo Senttra.
 
-Next.js reenvía exclusivamente `/edge` y sus rutas al servicio existente
+La página conserva el diseño original de Senttra: mapa del corredor con zoom y
+selección de cámaras, paneles verdes, detección anotada, gráfico y galería con
+recortes del video. Se puede alternar entre las once cámaras simultáneas y una
+cámara seleccionada. La línea de tiempo corresponde a los 90 segundos reales;
+las infracciones figuran como no evaluadas porque estos resultados no las incluyen.
+
+Next.js sirve la interfaz y reenvía solamente `/edge/api/*`, `/edge/auth/*`,
+`/edge/media/*` y `/edge/healthz` al servicio existente
 `https://senttra.filosofiacodigo.com/edge`. Videos con rangos HTTP, eventos SSE,
 sesiones y protección CSRF quedan en ese servicio. Vercel no ejecuta modelos ni
 almacena las grabaciones; las respuestas privadas no se almacenan en caché.
@@ -77,3 +84,15 @@ una credencial de navegador. Producción usa el origen HTTPS predeterminado.
 Actualizaciones del visor solo requieren desplegar este repositorio o reiniciar
 su backend dedicado. No requieren recargar Caddy. Para revertir la integración,
 revertir el commit de `/edge` y desplegar; el servicio original sigue disponible.
+
+Pruebas del reloj, observaciones causales y galería (Node 24):
+
+```bash
+node --test tests/edge-replay.test.mjs
+```
+
+`tests/edge-classic.browser.mjs` comprueba el mapa, los once videos, sincronización,
+pausa, selección, cajas/etiquetas/rastros, galería, pantalla completa, móvil y logout.
+Usa un backend OIDC de fixture aislado, nunca credenciales reales. Recibe
+`PLAYWRIGHT_MODULE`, `CHROMIUM_PATH`, `EDGE_TEST_ORIGIN` (por defecto localhost
+HTTPS 8162) y `EDGE_EVIDENCE_DIR` para adaptarse al entorno de pruebas.

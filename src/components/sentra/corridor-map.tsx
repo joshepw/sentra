@@ -17,9 +17,10 @@ function facing(cx: number, cy: number, bearing: number, len = 26) {
   return { cone, tip: [cx + len * Math.cos(a), cy + len * Math.sin(a)] as const };
 }
 
-export function CorridorMap({ cams, sel, onPick, admin, api, token }: {
+export function CorridorMap({ cams, sel, onPick, admin, api, token, loadSavedLayout = true }: {
   cams: MapCam[]; sel: number; onPick: (i: number) => void;
   admin: boolean; api: string; token: string;
+  loadSavedLayout?: boolean;
 }) {
   const svgRef = useRef<SVGSVGElement>(null);
   const gRef = useRef<SVGGElement>(null);
@@ -36,13 +37,14 @@ export function CorridorMap({ cams, sel, onPick, admin, api, token }: {
 
   // Cargar el layout guardado (posiciones/ángulos que el admin ajustó) y fusionar sobre los defaults.
   useEffect(() => {
+    if (!loadSavedLayout) return;
     let alive = true;
     fetch(`${api}/api/map?k=${encodeURIComponent(token)}&_=${Date.now()}`)
       .then((r) => (r.ok ? r.json() : {}))
       .then((saved: Record<string, MapPin>) => { if (alive && saved && typeof saved === "object") setLayout({ ...MAP.camDefaults, ...saved }); })
       .catch(() => {});
     return () => { alive = false; };
-  }, [api, token]);
+  }, [api, token, loadSavedLayout]);
 
   const pin = (id: string) => layout[id] ?? MAP.camDefaults[id] ?? DEFAULT_PIN;
 
@@ -203,6 +205,8 @@ export function CorridorMap({ cams, sel, onPick, admin, api, token }: {
                 {isSel && <circle cx={cx} cy={cy} r={22} fill="none" stroke="#3dd68c" strokeWidth={1.4} className="origin-center animate-sn-ripout" style={{ transformBox: "fill-box" } as React.CSSProperties} />}
                 {/* cuerpo del pin: clic = seleccionar; en admin, arrastrar = mover */}
                 <g transform={`translate(${cx} ${cy})`} className={admin ? "cursor-move" : "cursor-pointer"}
+                  role="button" tabIndex={0} aria-label={`Seleccionar ${c.nombre} en el mapa`} aria-pressed={isSel}
+                  onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onPick(i); } }}
                   onPointerDown={start(c.id, "move")}
                   onClick={() => { if (!drag) onPick(i); }}
                   onMouseEnter={() => setHover(c.id)} onMouseLeave={() => setHover((h) => (h === c.id ? null : h))}>
