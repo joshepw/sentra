@@ -1,4 +1,3 @@
-import type { RegionState } from "./edge-regions";
 export type Camera = { key: string; title: string; fps: number; width: number; height: number; url: string };
 export type Track = {
   native_id: number; native_class: number; visible: boolean;
@@ -12,7 +11,7 @@ export type Run = {
   run_id: string | null; status: "idle" | "loading" | "running" | "complete" | "failed";
   server_time: number; packet: Packet | null; frames: Frame[]; error: string | null;
 };
-export type Bootstrap = { user: { name: string; email: string; csrf: string }; cameras: Camera[]; run: Run; duration: number; buffer_seconds: number; regions: RegionState };
+export type Bootstrap = { user: { name: string; email: string; csrf: string }; cameras: Camera[]; run: Run; duration: number; buffer_seconds: number };
 export type Vehicle = { id: number; time: number; box: Track["xyxy"]; type: string; color: string };
 
 export const TYPE: Record<string, string> = { turismo: "Turismo", camioneta: "Camioneta", paila: "Paila", camion_pequeno: "Camión pequeño", camion_grande: "Camión grande", busito: "Busito", bus: "Bus", otro: "Otro", dudoso: "No se distingue" };
