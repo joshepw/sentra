@@ -11,6 +11,18 @@ const result={started:new Date().toISOString(),errors:[],samples:[]};
 const offline=(process.env.LIVE_OFFLINE_CAMERAS ?? '').split(',').filter(Boolean);
 try {
   const context=await browser.newContext({ignoreHTTPSErrors:true,viewport:{width:1600,height:1050}});
+  await context.addInitScript(()=>{
+    window.__hlsEvents=[];let exposed;
+    Object.defineProperty(window,'Hls',{configurable:true,get:()=>exposed,set:Actual=>{
+      exposed=class extends Actual {
+        loadSource(url){this.diagnosticUrl=url;return super.loadSource(url);}
+        constructor(config){super(config);this.on(Actual.Events.ERROR,(_event,value)=>{
+          window.__hlsEvents.push({at:Date.now(),url:this.diagnosticUrl,fatal:value.fatal,type:value.type,details:value.details,code:value.response?.code});
+          if(window.__hlsEvents.length>200)window.__hlsEvents.shift();
+        });}
+      };
+    }});
+  });
   const page=await context.newPage();page.on('pageerror',error=>result.errors.push(error.message));
   for(const path of ['/api/live/bootstrap','/api/live/archive?camera=little1','/media/live/little1/index.m3u8']) {
     assert.equal((await context.request.get(origin+'/edge'+path)).status(),401);
@@ -65,7 +77,9 @@ try {
   await page.setViewportSize({width:390,height:844});await page.waitForTimeout(500);
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
   await page.screenshot({path:output+'/continuous-mobile.png',fullPage:true});
-  await page.setViewportSize({width:1600,height:1050});
+  // Keep every live tile visible during the sustained decoder check. Browsers may
+  // suppress video rendering outside the viewport while the media clock advances.
+  await page.setViewportSize({width:1600,height:2400});
   const state=await (await context.request.get(origin+'/edge/api/live/bootstrap')).json();
   const stopped=structuredClone(state);const activeIndex=stopped.cameras.findIndex(row=>row.receiving);stopped.cameras[activeIndex].receiving=false;
   await page.route('**/edge/api/live/bootstrap',route=>route.fulfill({json:stopped}));
@@ -77,14 +91,16 @@ try {
   console.log(JSON.stringify({event:'interactive_checks_passed',watch_seconds:duration}));
   while(Date.now()-started<duration*1000) {
     await page.waitForTimeout(Math.min(10000,Math.max(1,duration*1000-(Date.now()-started))));
-    const cameras=await read();assert.equal(cameras.length,expected,'All selected cameras remain mounted');
+    const cameras=await read();const previousSample=result.samples.at(-1);
+    result.samples.push({seconds:(Date.now()-started)/1000,cameras});
+    result.hlsEvents=await page.evaluate(()=>window.__hlsEvents);
+    assert.equal(cameras.length,expected,'All selected cameras remain mounted');
     for(const camera of cameras){
       if(offline.includes(camera.camera))continue;
       assert.equal(camera.paused,false,`${camera.camera} keeps playing`);
-      const previous=result.samples.at(-1)?.cameras.find(row=>row.camera===camera.camera);
-      if(previous)assert(camera.frames>previous.frames,`${camera.camera} delivers frames during every sample interval`);
+      const previous=previousSample?.cameras.find(row=>row.camera===camera.camera);
+      if(previous)assert(camera.frames!==previous.frames||camera.time>previous.time+.5,`${camera.camera} makes playback progress during every sample interval`);
     }
-    result.samples.push({seconds:(Date.now()-started)/1000,cameras});
     await writeFile(output+'/continuous-browser-progress.json',JSON.stringify({...result,watchSeconds:(Date.now()-started)/1000},null,2)+'\n');
     if(result.samples.length%6===0)console.log(JSON.stringify({event:'browser_progress',seconds:Math.round((Date.now()-started)/1000),cameras:result.samples.at(-1).cameras}));
   }

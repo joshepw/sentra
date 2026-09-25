@@ -60,6 +60,7 @@ function LiveCamera({ camera, ready, goLive }: { camera: Camera; ready: boolean;
     const connect = () => {
       if (closed) return;
       player?.destroy();
+      lastTime = 0; lastProgress = Date.now();
       if (WindowHls?.isSupported()) {
         player = new WindowHls({ enableWorker: true, lowLatencyMode: false, liveSyncDurationCount: 2,
           liveMaxLatencyDurationCount: 5, maxBufferLength: 18, backBufferLength: 30,
@@ -83,7 +84,7 @@ function LiveCamera({ camera, ready, goLive }: { camera: Camera; ready: boolean;
     element.addEventListener("pause", paused); element.addEventListener("loadedmetadata", loaded);
     connect();
     const watch = setInterval(() => {
-      if (element.currentTime > lastTime + .01) { lastTime = element.currentTime; lastProgress = Date.now(); }
+      if (Math.abs(element.currentTime - lastTime) > .01) { lastTime = element.currentTime; lastProgress = Date.now(); }
       if (!element.paused && Date.now() - lastProgress > 15000) {
         lastProgress = Date.now(); setStatus("Reconectando…"); connect();
       }
