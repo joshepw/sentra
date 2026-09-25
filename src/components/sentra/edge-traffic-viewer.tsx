@@ -6,7 +6,10 @@ import { SentraLogoMark, SentraWordmark } from "@/components/sentra/ui";
 import { CorridorMap } from "@/components/sentra/corridor-map";
 import { EdgeCamera, type Overlays } from "@/components/sentra/edge-camera";
 import { EdgeVehicleGallery } from "@/components/sentra/edge-vehicle-gallery";
-import { clock, frameAt, isVehicle, vehiclesIn, ReplayClock, type Bootstrap, type Frame, type Metrics, type Packet, type Run } from "@/lib/edge-replay";
+import { clock, frameAt, isVehicle, vehiclesIn, ReplayClock, type Bootstrap, type Camera, type Frame, type Metrics, type Packet, type Run } from "@/lib/edge-replay";
+
+import { allowed, filterFrames, type RegionState } from "@/lib/edge-regions";
+import { EdgeZoneEditor } from "@/components/sentra/edge-zone-editor";
 
 const CameraMap = memo(CorridorMap);
 const Gallery = memo(EdgeVehicleGallery);
@@ -18,6 +21,9 @@ const inactive = "border-[var(--border)] bg-bg-input text-text-faint";
 export function EdgeTrafficViewer() {
   const [controller] = useState(() => new ReplayClock());
   const [data, setData] = useState<Bootstrap | null>(null);
+  const [regions, setRegions] = useState<RegionState | null>(null);
+  const [editor, setEditor] = useState<{ camera: Camera; time: number; regions: RegionState } | null>(null);
+  const [notice, setNotice] = useState("");
   const [run, setRun] = useState<Run | null>(null);
   const [signedOut, setSignedOut] = useState(false);
   const [error, setError] = useState("");
@@ -27,7 +33,7 @@ export function EdgeTrafficViewer() {
   const [overlays, setOverlays] = useState<Overlays>({ cajas: true, etiquetas: true, rastros: true });
   const [position, setPosition] = useState(0);
   const [metrics, setMetrics] = useState<Metrics | null>(null);
-  const [, setReplayVersion] = useState(0);
+  const [history, setHistory] = useState<Map<string, Frame[]>>(() => new Map());
   const pick = useCallback((index: number) => { setSel(index); }, []);
   const seek = useCallback((seconds: number) => { controller.seek(seconds); setPosition(seconds); }, [controller]);
 
@@ -44,7 +50,7 @@ export function EdgeTrafficViewer() {
     const receive = (snapshot: Run) => {
       if (abort.signal.aborted) return;
       if (activeRun !== snapshot.run_id) {
-        activeRun = snapshot.run_id; loadedRun = null; controller.reset(); setReplayVersion(v => v + 1);
+        activeRun = snapshot.run_id; loadedRun = null; controller.reset(); setHistory(new Map(controller.frames));
       }
       if (snapshot.status === "loading") controller.mode = "idle";
       if (snapshot.status === "running") {
@@ -57,7 +63,7 @@ export function EdgeTrafficViewer() {
         void request("/api/replay").then(response => response.text()).then(text => {
           if (abort.signal.aborted || activeRun !== id) return;
           const packets: Packet[] = text.trim().split("\n").filter(Boolean).map(line => JSON.parse(line));
-          controller.replay(packets); loadedRun = id; setReplayVersion(v => v + 1); setError("");
+          controller.replay(packets); loadedRun = id; setHistory(new Map(controller.frames)); setError("");
         }).catch(reason => { if (!abort.signal.aborted) setError(String(reason.message)); })
           .finally(() => { if (loadingRun === id) loadingRun = null; });
       }
@@ -68,7 +74,7 @@ export function EdgeTrafficViewer() {
     void request("/api/bootstrap").then(response => response.json()).then((bootstrap: Bootstrap) => {
       if (abort.signal.aborted) return;
       controller.offset = bootstrap.run.server_time - (start + Date.now() / 1000) / 2;
-      setData(bootstrap); receive(bootstrap.run);
+      setData(bootstrap); setRegions(bootstrap.regions); receive(bootstrap.run);
       source = new EventSource("/edge/api/events");
       source.addEventListener("state", event => {
         try { receive(JSON.parse(event.data)); } catch { setError("No se pudo actualizar el estado de la prueba."); }
@@ -89,7 +95,8 @@ export function EdgeTrafficViewer() {
         if (packet) setMetrics(packet.metrics);
       }
     }, 180);
-    return () => { abort.abort(); source?.close(); clearInterval(timer); };
+    const regionTimer = setInterval(() => { void request("/api/regions").then(response => response.json()).then((state: RegionState) => { if (!abort.signal.aborted) setRegions(old => old?.revision === state.revision ? old : state); }).catch(() => {}); }, 10000);
+    return () => { abort.abort(); source?.close(); clearInterval(timer); clearInterval(regionTimer); };
   }, [controller]);
 
   const post = async (path: string) => {
@@ -105,12 +112,27 @@ export function EdgeTrafficViewer() {
   const logout = async () => {
     try { await post("/auth/logout"); window.location.assign("/edge"); } catch (reason) { setError((reason as Error).message); }
   };
+  const editZones = async () => {
+    if (!camera) return;
+    setError("");
+    try {
+      const response = await fetch("/edge/api/regions", { cache: "no-store" });
+      if (!response.ok) throw new Error("No se pudieron cargar las zonas. Revisá tu sesión y volvé a intentar.");
+      const current: RegionState = await response.json(); setRegions(current);
+      if (controller.mode === "replay" && !controller.paused) controller.pause();
+      setEditor({ camera, time: controller.time(), regions: current });
+    } catch (reason) { setError((reason as Error).message); }
+  };
   const mapCameras = useMemo(() => data?.cameras.map(camera => ({ id: camera.key, nombre: camera.title, n_giro: 0, n_rojo: 0 })) ?? [], [data]);
   const camera = data?.cameras[sel];
-  const frames = camera && run?.status === "complete" ? controller.frames.get(camera.key) ?? EMPTY_FRAMES : EMPTY_FRAMES;
+  const profile = camera ? regions?.profiles[camera.key] : undefined;
+  const frames = useMemo(() => {
+    const raw = camera && run?.status === "complete" ? history.get(camera.key) ?? EMPTY_FRAMES : EMPTY_FRAMES;
+    return filterFrames(raw, profile);
+  }, [camera, history, profile, run?.status]);
   const vehicles = useMemo(() => vehiclesIn(frames), [frames]);
   const liveTracks = controller.mode === "live" && camera
-    ? frameAt(controller.frames.get(camera.key) ?? EMPTY_FRAMES, position)?.native_tracks.filter(isVehicle) ?? [] : null;
+    ? frameAt(controller.frames.get(camera.key) ?? EMPTY_FRAMES, position)?.native_tracks.filter(track => isVehicle(track) && allowed(track, profile)) ?? [] : null;
   const tracking = liveTracks ? liveTracks.length : vehicles.length;
   const classified = liveTracks ? liveTracks.filter(track => track.attributes).length : vehicles.filter(vehicle => vehicle.color !== "Por clasificar").length;
 
@@ -128,6 +150,7 @@ export function EdgeTrafficViewer() {
   const isReplay = controller.mode === "replay";
   const status = run?.status === "loading" ? "Cargando modelos…" : run?.status === "running" ? "Inferencia en tiempo real" : isReplay ? "Reproducción de grabaciones · 90 s" : "Cargando resultados…";
   return <div className="min-h-screen w-full bg-bg text-text">
+    {editor && <EdgeZoneEditor camera={editor.camera} initial={editor.regions} time={editor.time} csrf={data.user.csrf} onClose={() => setEditor(null)} onSaved={state => { setRegions(state); setEditor(null); setNotice("Zonas guardadas. Se aplican al visor y a la siguiente prueba."); }} />}
     <header className="sticky top-0 z-50 flex items-center justify-between gap-4 border-b border-[var(--border)] bg-[rgba(8,20,17,0.9)] px-6 py-4 backdrop-blur-md">
       <Link href="/" className="flex items-center gap-2.5"><SentraLogoMark size={26} /><SentraWordmark /><span className="ml-1 font-mono text-[9px] font-bold uppercase tracking-[0.3em] text-accent">Edge</span></Link>
       <div className="flex items-center gap-4 text-right font-mono text-[11px] leading-relaxed text-text-faint"><span className="hidden sm:block">Monitoreo de tráfico · SPS<br />Grabaciones locales · <span className="text-accent">11 cámaras</span></span><button onClick={logout} className="hover:text-accent">Salir</button></div>
@@ -146,6 +169,7 @@ export function EdgeTrafficViewer() {
         <span className="pr-1 font-mono text-[10px] uppercase tracking-[0.14em] text-text-faint">Cámara:</span>
         {data.cameras.map((item, index) => <button key={item.key} aria-pressed={index === sel} onClick={() => pick(index)} className={`cursor-pointer rounded-md border px-2.5 py-1.5 font-mono text-[11px] transition-colors ${index === sel ? active : "border-[var(--border)] bg-bg-input text-text-muted hover:border-accent hover:text-text"}`}>{item.title}</button>)}
       </div>
+      {notice && <p role="status" className="mb-4 text-sm text-accent">{notice}</p>}
       {error && <p role="alert" className="mb-4 rounded-xl border border-danger/50 bg-bg-panel p-4 font-mono text-xs text-danger">{error}</p>}
       <div className="mb-4 flex flex-col gap-4 lg:flex-row">
         <section className="min-w-0 overflow-hidden rounded-2xl border border-[var(--border-strong)] bg-bg-panel p-5 lg:flex-[2.4]" aria-label="Detección anotada">
@@ -154,7 +178,7 @@ export function EdgeTrafficViewer() {
           </div>
           <div className="mb-3 flex flex-wrap gap-2"><button aria-pressed={all} onClick={() => setAll(true)} className={`${button} ${all ? active : inactive}`}>Todas simultáneas</button><button aria-pressed={!all} onClick={() => setAll(false)} className={`${button} ${!all ? active : inactive}`}>Cámara seleccionada</button></div>
           <div className={all ? "grid grid-cols-1 gap-2.5 sm:grid-cols-2 xl:grid-cols-3" : "grid grid-cols-1"}>
-            {data.cameras.filter((_, index) => all || index === sel).map(item => <EdgeCamera key={item.key} camera={item} controller={controller} overlays={overlays} selected={item.key === camera?.key} />)}
+            {data.cameras.filter((_, index) => all || index === sel).map(item => <EdgeCamera key={item.key} profile={regions?.profiles[item.key]} camera={item} controller={controller} overlays={overlays} selected={item.key === camera?.key} />)}
           </div>
           <div className="mt-4 flex flex-wrap items-center justify-between gap-3 font-mono text-[10px] text-text-faint"><span className="text-accent">{status}</span><output data-testid="replay-clock">{clock(position)} / 01:30</output></div>
           <input aria-label="Posición de la grabación" type="range" min="0" max="90" step=".1" value={position} disabled={!isReplay} onChange={e => seek(Number(e.target.value))} className="mt-3 w-full cursor-pointer accent-accent disabled:opacity-30" />
@@ -167,6 +191,8 @@ export function EdgeTrafficViewer() {
         <aside className="flex min-w-0 flex-col gap-4 lg:flex-1">
           <div className="overflow-hidden rounded-2xl border border-[var(--border-strong)] bg-bg-panel"><div className="border-b border-[var(--border)] px-5 py-4 font-mono text-[11px] font-semibold uppercase tracking-[0.14em] text-text-muted">Estación local · Edge</div>
             <div className="p-5"><p className="font-display text-lg font-bold text-accent">{camera?.title}</p><p className="mt-2 font-mono text-[11px] leading-relaxed text-text-muted">{all ? "Las once cámaras comparten la reproducción." : "Usá el mapa para cambiar de cámara."}<br />Grabaciones de distintas fechas.</p>
+              <button disabled={isRunning || !regions} onClick={editZones} className={`mt-4 ${button} ${active}`}>Editar zonas de esta cámara</button>
+              <p className="mt-2 text-xs text-text-faint">{profile?.regions.filter(region => region.enabled).length ?? 0} zonas activas · {camera?.title}</p>
               <button disabled={busy || isRunning} onClick={startRun} className={`mt-4 ${button} ${active}`}>{busy || isRunning ? "Procesando…" : "Nueva prueba de inferencia"}</button>
               <p className="mt-3 font-mono text-[10px] leading-relaxed text-text-faint">Vuelve a analizar estos videos. Todos los espectadores comparten la misma prueba.</p>
             </div>
