@@ -159,6 +159,10 @@ function History({ camera, onExpired }: { camera: Camera; onExpired: () => void 
       setMessage(`Hay un período sin grabación entre ${timeText(selected.ended)} y ${timeText(next.started)}. Elegí el siguiente tramo para continuar.`);
       return;
     }
+    if (next.started - selected.ended < -.15) {
+      setMessage("Los horarios de estos tramos se superponen. Elegí el siguiente tramo para continuar.");
+      return;
+    }
     choose(next);
   };
   return <section className={`${panel} p-4`} aria-label="Historial de la cámara">

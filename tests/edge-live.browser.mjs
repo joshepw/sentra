@@ -8,6 +8,7 @@ const output=process.env.EDGE_EVIDENCE_DIR ?? '/home/paal/Projects/senttra-live/
 await mkdir(output,{recursive:true});
 const browser=await chromium.launch({headless:true,executablePath:'/opt/google/chrome/chrome',args:['--autoplay-policy=no-user-gesture-required']});
 const result={started:new Date().toISOString(),errors:[],samples:[]};
+const offline=(process.env.LIVE_OFFLINE_CAMERAS ?? '').split(',').filter(Boolean);
 try {
   const context=await browser.newContext({ignoreHTTPSErrors:true,viewport:{width:1600,height:1050}});
   const page=await context.newPage();page.on('pageerror',error=>result.errors.push(error.message));
@@ -19,9 +20,9 @@ try {
   await page.waitForURL(origin+'/edge/live');
   const expected=Number(process.env.LIVE_EXPECTED_CAMERAS ?? 2);
   await page.waitForFunction(count=>document.querySelectorAll('video[data-live-video]').length===count,expected);
-  await page.waitForFunction(()=>[...document.querySelectorAll('video[data-live-video]')].every(v=>v.readyState>=3&&!v.paused&&v.currentTime>1),null,{timeout:60000});
+  await page.waitForFunction(excluded=>[...document.querySelectorAll('video[data-live-video]')].filter(v=>!excluded.includes(v.dataset.liveVideo)).every(v=>v.readyState>=3&&!v.paused&&v.currentTime>1),offline,{timeout:60000});
   const read=()=>page.locator('video[data-live-video]').evaluateAll(list=>list.map(v=>({camera:v.dataset.liveVideo,time:v.currentTime,ready:v.readyState,paused:v.paused,width:v.videoWidth,height:v.videoHeight,frames:v.getVideoPlaybackQuality().totalVideoFrames,dropped:v.getVideoPlaybackQuality().droppedVideoFrames})));
-  result.initial=await read();console.log(JSON.stringify({event:'two_cameras_playing',cameras:result.initial}));
+  result.initial=await read();console.log(JSON.stringify({event:'cameras_playing',cameras:result.initial}));
   await page.screenshot({path:output+'/continuous-desktop.png',fullPage:true});
   await page.getByRole('button',{name:'Seleccionar Little Caesars 1 en el mapa',exact:true}).click();
   await page.getByRole('button',{name:'Cámara seleccionada',exact:true}).click();
@@ -35,7 +36,8 @@ try {
   assert.equal(range.status(),206);assert.equal((await range.body()).length,128);
   assert.equal(await page.getByRole('link',{name:'Descargar tramo'}).getAttribute('href'),history.url);
   const rows=await (await context.request.get(origin+'/edge/api/live/archive?camera=little1')).json();
-  const segment=rows.segments.at(-1);
+  const segment=rows.segments.findLast(row=>Math.ceil(row.started/60)*60<row.ended-3);
+  assert(segment,'A recorded segment spans a whole-minute search point');
   const target=Math.ceil(segment.started/60)*60;
   const input=new Date((target-6*3600)*1000).toISOString().slice(0,16);
   await page.getByLabel('Fecha y hora').fill(input);
@@ -44,6 +46,19 @@ try {
   await page.waitForFunction(offset=>{const v=document.querySelector('[data-history-video]');return v?.readyState>=2&&Math.abs(v.currentTime-offset)<5;},target-segment.started);
   result.history={...history,searched:input,range:206,download:true};
   await page.screenshot({path:output+'/continuous-history.png',fullPage:true});
+  const earlier=rows.segments.slice(0,-1).findLast(row=>Math.ceil(row.started/60)*60<row.ended-3);
+  assert(earlier);
+  const overlapping={...rows.segments.at(-1),started:earlier.ended-1};
+  overlapping.ended=overlapping.started+overlapping.duration;
+  await page.route('**/edge/api/live/archive?*',route=>route.fulfill({json:{segments:[earlier,overlapping],gaps:[],truncated:false}}));
+  const overlapTarget=Math.ceil(earlier.started/60)*60;
+  await page.getByLabel('Fecha y hora').fill(new Date((overlapTarget-6*3600)*1000).toISOString().slice(0,16));
+  await page.getByRole('button',{name:'Buscar hora',exact:true}).click();
+  await page.waitForFunction(id=>{const v=document.querySelector('[data-history-video]');return v?.getAttribute('src')?.includes(id)&&v.readyState>=2;},earlier.id);
+  await page.locator('[data-history-video]').evaluate(v=>{v.currentTime=v.duration-.2;void v.play();});
+  await page.getByText('Los horarios de estos tramos se superponen. Elegí el siguiente tramo para continuar.',{exact:true}).waitFor({timeout:10000});
+  assert((await page.locator('[data-history-video]').getAttribute('src')).includes(earlier.id));
+  await page.unroute('**/edge/api/live/archive?*');result.clockOverlapStops=true;
   await page.getByRole('button',{name:'En vivo',exact:true}).click();
   await page.getByRole('button',{name:'Todas',exact:true}).click();
   await page.waitForFunction(count=>[...document.querySelectorAll('video[data-live-video]')].length===count,expected);
@@ -52,11 +67,11 @@ try {
   await page.screenshot({path:output+'/continuous-mobile.png',fullPage:true});
   await page.setViewportSize({width:1600,height:1050});
   const state=await (await context.request.get(origin+'/edge/api/live/bootstrap')).json();
-  const stopped=structuredClone(state);stopped.cameras[0].receiving=false;
+  const stopped=structuredClone(state);const activeIndex=stopped.cameras.findIndex(row=>row.receiving);stopped.cameras[activeIndex].receiving=false;
   await page.route('**/edge/api/live/bootstrap',route=>route.fulfill({json:stopped}));
-  await page.locator(`[data-live-camera="${stopped.cameras[0].key}"]`).getByText('Sin señal',{exact:true}).waitFor({timeout:15000});
+  await page.locator(`[data-live-camera="${stopped.cameras[activeIndex].key}"]`).getByText('Sin señal',{exact:true}).waitFor({timeout:15000});
   await page.unroute('**/edge/api/live/bootstrap');
-  await page.waitForFunction(()=>[...document.querySelectorAll('video[data-live-video]')].every(v=>v.readyState>=3&&!v.paused&&v.currentTime>1),null,{timeout:45000});
+  await page.waitForFunction(excluded=>[...document.querySelectorAll('video[data-live-video]')].filter(v=>!excluded.includes(v.dataset.liveVideo)).every(v=>v.readyState>=3&&!v.paused&&v.currentTime>1),offline,{timeout:45000});
   result.stoppedSignalAndRecovery=true;result.mobileOverflow=false;
   const duration=Number(process.env.LIVE_WATCH_SECONDS ?? 60),started=Date.now();
   console.log(JSON.stringify({event:'interactive_checks_passed',watch_seconds:duration}));
@@ -64,6 +79,7 @@ try {
     await page.waitForTimeout(Math.min(10000,Math.max(1,duration*1000-(Date.now()-started))));
     const cameras=await read();assert.equal(cameras.length,expected,'All selected cameras remain mounted');
     for(const camera of cameras){
+      if(offline.includes(camera.camera))continue;
       assert.equal(camera.paused,false,`${camera.camera} keeps playing`);
       const previous=result.samples.at(-1)?.cameras.find(row=>row.camera===camera.camera);
       if(previous)assert(camera.frames>previous.frames,`${camera.camera} delivers frames during every sample interval`);
