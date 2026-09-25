@@ -153,7 +153,7 @@ export function EdgeTrafficViewer() {
     {editor && <EdgeZoneEditor camera={editor.camera} initial={editor.regions} time={editor.time} csrf={data.user.csrf} onClose={() => setEditor(null)} onSaved={state => { setRegions(state); setEditor(null); setNotice("Zonas guardadas. Se aplican al visor y a la siguiente prueba."); }} />}
     <header className="sticky top-0 z-50 flex items-center justify-between gap-4 border-b border-[var(--border)] bg-[rgba(8,20,17,0.9)] px-6 py-4 backdrop-blur-md">
       <Link href="/" className="flex items-center gap-2.5"><SentraLogoMark size={26} /><SentraWordmark /><span className="ml-1 font-mono text-[9px] font-bold uppercase tracking-[0.3em] text-accent">Edge</span></Link>
-      <div className="flex items-center gap-4 text-right font-mono text-[11px] leading-relaxed text-text-faint"><span className="hidden sm:block">Monitoreo de tráfico · SPS<br />Grabaciones locales · <span className="text-accent">11 cámaras</span></span><button onClick={logout} className="hover:text-accent">Salir</button></div>
+      <div className="flex items-center gap-4 text-right font-mono text-[11px] leading-relaxed text-text-faint"><Link href="/edge/live" className="text-accent hover:underline">En vivo e historial</Link><span className="hidden sm:block">Monitoreo de tráfico · SPS<br />Grabaciones locales · <span className="text-accent">11 cámaras</span></span><button onClick={logout} className="hover:text-accent">Salir</button></div>
     </header>
     <main className="mx-auto max-w-[1600px] px-4 py-6 sm:px-6">
       <div className="mb-4 grid grid-cols-2 divide-[var(--border)] overflow-hidden rounded-2xl border border-[var(--border-strong)] bg-bg-panel lg:grid-cols-4 lg:divide-x">
