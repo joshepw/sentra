@@ -1,14 +1,12 @@
 "use client";
 
 import { memo, useEffect, useRef } from "react";
-import { colorName, frameAt, isVehicle, typeName, ReplayClock, type Camera, type Track } from "@/lib/edge-replay";
-
-import { allowed, type Profile } from "@/lib/edge-regions";
+import { colorName, frameAt, isVehicle, typeName, ReplayClock, type Camera } from "@/lib/edge-replay";
 
 export type Overlays = { cajas: boolean; etiquetas: boolean; rastros: boolean };
 
-export const EdgeCamera = memo(function EdgeCamera({ camera, controller, overlays, selected, profile }: {
-  camera: Camera; controller: ReplayClock; overlays: Overlays; selected: boolean; profile?: Profile;
+export const EdgeCamera = memo(function EdgeCamera({ camera, controller, overlays, selected }: {
+  camera: Camera; controller: ReplayClock; overlays: Overlays; selected: boolean;
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -26,7 +24,7 @@ export const EdgeCamera = memo(function EdgeCamera({ camera, controller, overlay
       const frames = controller.frames.get(camera.key) ?? [];
       const frame = frameAt(frames, pts);
       if (!frame || controller.mode === "idle") { status.textContent = "Esperando detecciones"; return; }
-      const tracks = frame.native_tracks.filter(track => isVehicle(track) && allowed(track, profile));
+      const tracks = frame.native_tracks.filter(isVehicle);
       const index = frames.indexOf(frame), next = frames[index + 1];
       const gap = next ? next.source_seconds - frame.source_seconds : 0;
       const blend = gap > 0 && gap <= .3 ? Math.max(0, Math.min(1, (pts - frame.source_seconds) / gap)) : 0;
@@ -34,20 +32,16 @@ export const EdgeCamera = memo(function EdgeCamera({ camera, controller, overlay
       const scale = canvas.width / Math.max(180, canvas.clientWidth);
       const font = Math.max(16, Math.min(44, 11 * scale));
       ctx.font = `600 ${font}px ui-monospace, monospace`; ctx.lineWidth = Math.max(2, scale);
-      let visibleCount = 0;
       for (const track of tracks) {
         const future = blend ? next.native_tracks.find(item => item.native_id === track.native_id) : undefined;
-        const box = track.xyxy.map((value, i) => future ? value + (future.xyxy[i] - value) * blend : value) as Track["xyxy"];
-        if (!allowed({ ...track, xyxy: box }, profile)) continue;
-        visibleCount++;
-        const [x, y, right, bottom] = box;
+        const [x, y, right, bottom] = track.xyxy.map((value, i) => future ? value + (future.xyxy[i] - value) * blend : value);
         const color = track.attributes ? "#3dd68c" : "#6fc9f2";
         if (overlays.rastros) {
           ctx.beginPath(); let started = false;
           for (let f = Math.max(0, index - 15); f <= index; f++) {
             if (pts - frames[f].source_seconds > 1.5) continue;
             const past = frames[f].native_tracks.find(item => item.native_id === track.native_id && item.visible);
-            if (!past || !allowed(past, profile)) { started = false; continue; }
+            if (!past) continue;
             const [a, b, c, d] = past.xyxy;
             if (started) ctx.lineTo((a + c) * sx / 2, (b + d) * sy / 2);
             else ctx.moveTo((a + c) * sx / 2, (b + d) * sy / 2);
@@ -65,7 +59,7 @@ export const EdgeCamera = memo(function EdgeCamera({ camera, controller, overlay
           ctx.fillStyle = "#081411"; ctx.fillText(label, left + 6, top - 5);
         }
       }
-      status.textContent = `${visibleCount} en seguimiento · ${frame.analysed_fps_5s.toFixed(1)} fps analizados`;
+      status.textContent = `${tracks.length} en seguimiento · ${frame.analysed_fps_5s.toFixed(1)} fps analizados`;
     };
     const videoFrame = (_now: number, metadata: VideoFrameCallbackMetadata) => {
       pts = metadata.mediaTime; draw();
@@ -97,7 +91,7 @@ export const EdgeCamera = memo(function EdgeCamera({ camera, controller, overlay
     };
     drawn = -1; draw(); raf = requestAnimationFrame(loop);
     return () => { alive = false; cancelAnimationFrame(raf); video.cancelVideoFrameCallback?.(videoCallback); video.removeEventListener("seeked", seeked); video.pause(); };
-  }, [camera, controller, overlays, profile]);
+  }, [camera, controller, overlays]);
 
   return <article ref={cardRef} data-camera={camera.key} className={`min-w-0 overflow-hidden rounded-xl border bg-bg ${selected ? "border-accent" : "border-[var(--border-strong)]"}`}>
     <div className="flex items-center justify-between gap-2 px-3 py-2 font-mono text-[10px] text-text-muted"><span>{camera.title}</span><span className="text-text-faint">{camera.fps} fps</span></div>
