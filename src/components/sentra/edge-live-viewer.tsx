@@ -243,7 +243,7 @@ export function EdgeLiveViewer() {
     <Script src="/senttra/hls.min.js" strategy="afterInteractive" onReady={() => setReady(true)} />
     <header className="sticky top-0 z-50 flex flex-wrap items-center justify-between gap-3 border-b border-[var(--border)] bg-[rgba(8,20,17,0.95)] px-5 py-4 backdrop-blur-md">
       <Link href="/" className="flex items-center gap-2.5"><SentraLogoMark size={26} /><SentraWordmark /><span className="font-mono text-[10px] uppercase tracking-widest text-accent">Edge</span></Link>
-      <nav className="flex flex-wrap items-center gap-3 font-mono text-xs"><Link href="/edge" className="text-text-faint hover:text-accent">Pruebas y zonas</Link><span className="text-accent">En vivo e historial</span><button className="cursor-pointer text-text-faint hover:text-accent" onClick={logout}>Salir</button></nav>
+      <nav className="flex flex-wrap items-center gap-3 font-mono text-xs"><Link href="/edge" className="text-text-faint hover:text-accent">Pruebas de IA</Link><span className="text-accent">En vivo e historial</span><button className="cursor-pointer text-text-faint hover:text-accent" onClick={logout}>Salir</button></nav>
     </header>
     <div className="mx-auto max-w-[1920px] p-4 sm:p-6">
       <div className="mb-5 flex flex-wrap items-end justify-between gap-4">
