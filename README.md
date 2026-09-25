@@ -96,19 +96,3 @@ pausa, selección, cajas/etiquetas/rastros, galería, pantalla completa, móvil 
 Usa un backend OIDC de fixture aislado, nunca credenciales reales. Recibe
 `PLAYWRIGHT_MODULE`, `CHROMIUM_PATH`, `EDGE_TEST_ORIGIN` (por defecto localhost
 HTTPS 8162) y `EDGE_EVIDENCE_DIR` para adaptarse al entorno de pruebas.
-
-### Zonas por cámara
-
-En `/edge`, seleccionar una cámara y abrir **Editar zonas de esta cámara**. Dibujar exclusiones o inclusiones con varios puntos, cerrar el polígono y guardar. Se pueden arrastrar vértices, desactivar y eliminar zonas. El backend conserva versiones por revisión; ediciones simultáneas producen un conflicto explícito en vez de pisar cambios.
-
-El visor filtra cajas, rastros, galería y conteos con el centro de la detección, incluyendo el borde del polígono. Las exclusiones prevalecen sobre las inclusiones, como en Crowne. Las actualizaciones de otros usuarios se consultan cada 10 s. Al iniciar una inferencia el servidor fija una copia del perfil y filtra después de NMS, antes del tracker. Quitar una exclusión del visor no recrea detecciones ausentes de resultados antiguos: hace falta **Nueva prueba de inferencia**.
-
-El endpoint privado GET/POST `/edge/api/regions` usa la misma sesión Zitadel y CSRF/origen que el resto de escrituras. No usa almacenamiento local del navegador ni cambia los videos.
-
-Pruebas adicionales:
-
-```bash
-node --test tests/edge-replay.test.mjs tests/edge-regions.test.mjs
-# Con el backend de fixture y PLAYWRIGHT_MODULE/CHROMIUM_PATH configurados:
-python3 /ruta/senttra-live/tests/edge_browser_fixture.py "$PWD" "$PWD/tests/edge-zones.browser.mjs"
-```
