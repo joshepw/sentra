@@ -5,19 +5,21 @@ import Script from "next/script";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CorridorMap } from "@/components/sentra/corridor-map";
 import { SentraLogoMark, SentraWordmark } from "@/components/sentra/ui";
+import { LiveDetectionOverlay, type DetectionStatus } from "@/components/sentra/live-detection-overlay";
+import { fragmentName, type VideoFragment } from "@/lib/live-detections";
 
 type HlsInstance = {
   loadSource: (source: string) => void;
   attachMedia: (video: HTMLVideoElement) => void;
   destroy: () => void;
-  on: (event: string, callback: (_event: string, data: { fatal?: boolean }) => void) => void;
+  on: (event: string, callback: (_event: string, data: { fatal?: boolean; frag?: VideoFragment }) => void) => void;
 };
 declare global {
   interface Window {
     Hls?: {
       new (config: Record<string, unknown>): HlsInstance;
       isSupported: () => boolean;
-      Events: { ERROR: string };
+      Events: { ERROR: string; FRAG_BUFFERED: string; FRAG_CHANGED: string };
     };
   }
 }
@@ -26,6 +28,7 @@ type Camera = {
   key: string; title: string; url: string; receiving: boolean; bitrate_bps?: number;
   last_progress_age?: number;
   availability_note?: string;
+  detections?: DetectionStatus;
   encoding?: { mode: "compressed" | "original"; bitrate_kbps?: number } | null;
   archive?: { segments: number; seconds: number; last: number; problem_segments: number };
 };
@@ -51,6 +54,10 @@ const Map = memo(CorridorMap);
 
 function LiveCamera({ camera, ready, goLive }: { camera: Camera; ready: boolean; goLive: number }) {
   const video = useRef<HTMLVideoElement>(null);
+  const stage = useRef<HTMLDivElement>(null);
+  const fragments = useRef<VideoFragment[]>([]);
+  const [showBoxes, setShowBoxes] = useState(true);
+  const [filter, setFilter] = useState<"all" | "vehicles" | "people">("all");
   const [status, setStatus] = useState("Conectando…");
   useEffect(() => {
     const element = video.current;
@@ -62,6 +69,7 @@ function LiveCamera({ camera, ready, goLive }: { camera: Camera; ready: boolean;
     const connect = () => {
       if (closed) return;
       player?.destroy();
+      fragments.current = [];
       lastTime = 0; lastProgress = Date.now();
       if (WindowHls?.isSupported()) {
         player = new WindowHls({ enableWorker: true, lowLatencyMode: false, liveSyncDurationCount: 2,
@@ -73,6 +81,15 @@ function LiveCamera({ camera, ready, goLive }: { camera: Camera; ready: boolean;
           if (retry) clearTimeout(retry);
           retry = setTimeout(connect, 3000);
         });
+        const remember = (_event: string, details: { frag?: VideoFragment }) => {
+          const fragment = details.frag;
+          if (!fragment?.url) return;
+          const name = fragmentName(fragment.url);
+          fragments.current = [...fragments.current.filter(row => fragmentName(row.url) !== name), fragment]
+            .sort((a, b) => a.start - b.start).slice(-90);
+        };
+        player.on(WindowHls.Events.FRAG_BUFFERED, remember);
+        player.on(WindowHls.Events.FRAG_CHANGED, remember);
         player.loadSource(camera.url); player.attachMedia(element);
       } else if (element.canPlayType("application/vnd.apple.mpegurl")) element.src = camera.url;
       else setStatus("Este navegador no puede reproducir la señal.");
@@ -93,6 +110,7 @@ function LiveCamera({ camera, ready, goLive }: { camera: Camera; ready: boolean;
     }, 3000);
     return () => {
       closed = true; clearInterval(watch); if (retry) clearTimeout(retry); player?.destroy();
+      fragments.current = [];
       element.removeEventListener("playing", playing); element.removeEventListener("waiting", waiting);
       element.removeEventListener("pause", paused); element.removeEventListener("loadedmetadata", loaded);
       element.removeAttribute("src"); element.load();
@@ -110,9 +128,27 @@ function LiveCamera({ camera, ready, goLive }: { camera: Camera; ready: boolean;
       <h3 className="truncate text-text">{camera.title}</h3>
       <span className={camera.receiving ? "text-accent" : "text-warning"}>{camera.receiving ? status : "Sin señal"}</span>
     </div>
-    <div className="relative aspect-video bg-black">
-      <video ref={video} data-live-video={camera.key} muted autoPlay playsInline controls className="h-full w-full" />
+    <div ref={stage} className="relative aspect-video bg-black [&:fullscreen]:h-screen [&:fullscreen]:w-screen">
+      <video ref={video} data-live-video={camera.key} muted autoPlay playsInline controls controlsList="nofullscreen" className="h-full w-full object-contain" />
+      {camera.detections && <LiveDetectionOverlay camera={camera.key} video={video} fragments={fragments}
+        enabled={showBoxes} receiving={camera.receiving} filter={filter} />}
       {!camera.receiving && <div className="absolute inset-0 grid place-items-center bg-black/90 px-4 text-center text-sm text-text-faint">{camera.availability_note || "La cámara no está enviando video."}</div>}
+    </div>
+    <div className="flex flex-wrap items-center gap-2 border-t border-[var(--border)] px-3 py-2 font-mono text-[10px] text-text-faint">
+      {camera.detections && <>
+        <label className="flex cursor-pointer items-center gap-2 py-1 text-text">
+          <input type="checkbox" checked={showBoxes} onChange={event => setShowBoxes(event.target.checked)} className="accent-[#57f1aa]" />
+          Mostrar cajas
+        </label>
+        <select aria-label={`Filtrar detecciones de ${camera.title}`} value={filter} onChange={event => setFilter(event.target.value as typeof filter)}
+          className="min-w-0 rounded border border-[var(--border)] bg-bg-input px-2 py-1 text-text" disabled={!showBoxes}>
+          <option value="all">Todos los objetos</option><option value="vehicles">Vehículos</option><option value="people">Personas</option>
+        </select>
+      </>}
+      <button type="button" className="ml-auto cursor-pointer rounded border border-[var(--border)] px-2 py-1 text-text hover:border-accent"
+        aria-label={`Ampliar ${camera.title}`} onClick={() => { void stage.current?.requestFullscreen?.().catch(() => {}); }}>
+        Pantalla completa
+      </button>
     </div>
     <div className="flex justify-between gap-3 px-3 py-2 font-mono text-[10px] text-text-faint">
       <span>{camera.archive?.segments ?? 0} segmentos guardados{camera.archive?.problem_segments ? ` · ${camera.archive.problem_segments} con incidencias en el archivo` : ""}</span>
