@@ -30,7 +30,11 @@ export function LiveDetectionOverlay({ camera, enabled, receiving, filter, video
     let worker: DetectionStatus | null = null;
     const status = (text: string) => { if (label.textContent !== text) label.textContent = text; };
     const clear = () => {
+      // Clear backing-store pixels, including at zoom-out / pixel ratios < 1.
+      context.save();
+      context.resetTransform();
       context.clearRect(0, 0, layer.width, layer.height);
+      context.restore();
       layer.dataset.boxes = "0";
       delete layer.dataset.segment;
       delete layer.dataset.offset;

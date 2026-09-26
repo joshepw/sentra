@@ -10,7 +10,8 @@ const browser=await chromium.launch({headless:true,executablePath:'/opt/google/c
 const result={started:new Date().toISOString(),errors:[],samples:[]};
 let page;
 try{
- const context=await browser.newContext({ignoreHTTPSErrors:true,viewport:{width:1500,height:1000}});
+ const context=await browser.newContext({ignoreHTTPSErrors:true,viewport:{width:1500,height:1000},
+  deviceScaleFactor:Number(process.env.EDGE_TEST_DPR??.8)});
  await context.addInitScript(()=>{
   window.__hls=[];let exposed;
   Object.defineProperty(window,'Hls',{configurable:true,get:()=>exposed,set:Actual=>{
@@ -48,6 +49,23 @@ try{
  });
  result.initial=await sample();
  assert.equal(result.initial.width,1920);assert.equal(result.initial.height,1080);
+ result.devicePixelRatio=await page.evaluate(()=>window.devicePixelRatio);
+ // Mark the full right/bottom edges so a partial clear cannot pass just because
+ // the current traffic happens to be in the top-left of the image.
+ await canvas.evaluate(c=>{
+  const drawing=c.getContext('2d');drawing.save();drawing.resetTransform();
+  drawing.fillStyle='#ff00ff';drawing.fillRect(c.width-16,0,16,c.height);
+  drawing.fillRect(0,c.height-16,c.width,16);drawing.restore();
+ });
+ await page.waitForFunction(()=>{
+  const c=document.querySelector('[data-detection-overlay="little1"]');
+  const pixels=c.getContext('2d').getImageData(0,0,c.width,c.height).data;
+  for(let i=0;i<pixels.length;i+=4){
+   if(pixels[i]===255&&pixels[i+1]===0&&pixels[i+2]===255&&pixels[i+3]===255)return false;
+  }
+  return true;
+ },null,{timeout:3000});
+ result.clearedEntireFrame=true;
  console.log(JSON.stringify({event:'live_overlay_visible',sample:result.initial}));
  await page.screenshot({path:output+'/overlay-desktop.png',fullPage:true});
  await page.getByLabel('Mostrar cajas',{exact:true}).uncheck();
