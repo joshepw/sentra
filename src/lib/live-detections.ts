@@ -1,9 +1,19 @@
+export type VehicleAttributes = {
+  type: string;
+  color: string;
+  type_score: number;
+  color_score: number;
+  ready_source_pts: number;
+  view_source_pts: number[];
+};
+
 export type Detection = {
   id: number;
   class_id: number;
   label: string;
   score: number;
   box: [number, number, number, number];
+  attributes?: VehicleAttributes;
 };
 
 export type DetectionFrame = {
@@ -16,8 +26,22 @@ export type DetectionFrame = {
   height: number;
   region_revision: number;
   captured_at?: number | null;
+  source_pts?: number;
   objects: Detection[];
 };
+
+function validAttributes(object: Detection, sourcePTS: number | undefined) {
+  const value = object.attributes;
+  if (value === undefined) return true;
+  if (!value || typeof value !== "object" || ![2, 5, 7].includes(object.class_id)) return false;
+  return [value.type, value.color].every(label => typeof label === "string" && label.length > 0 && label.length <= 32) &&
+    [value.type_score, value.color_score].every(score => Number.isFinite(score) && score >= 0 && score <= 1) &&
+    typeof sourcePTS === "number" && Number.isFinite(sourcePTS) &&
+    Number.isFinite(value.ready_source_pts) && value.ready_source_pts <= sourcePTS + .00001 &&
+    Array.isArray(value.view_source_pts) && value.view_source_pts.length === 3 &&
+    value.view_source_pts.every((pts, index) => Number.isFinite(pts) && pts <= value.ready_source_pts + .00001 &&
+      (index === 0 || pts - value.view_source_pts[index - 1] >= .4998));
+}
 
 export type VideoFragment = {
   url: string;
@@ -59,7 +83,7 @@ export function validFrame(value: unknown, camera: string): value is DetectionFr
       typeof object.label === "string" && object.label.length <= 60 &&
       Number.isFinite(object.score) && Array.isArray(object.box) && object.box.length === 4 &&
       object.box.every(number => Number.isFinite(number) && number >= 0 && number <= 1) &&
-      object.box[2] >= object.box[0] && object.box[3] >= object.box[1]);
+      object.box[2] >= object.box[0] && object.box[3] >= object.box[1] && validAttributes(object, row.source_pts));
 }
 
 export class DetectionBuffer {

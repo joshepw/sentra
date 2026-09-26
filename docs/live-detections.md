@@ -6,10 +6,12 @@ positions and local tracking IDs; viewers draw a transparent canvas over the
 existing video element. Showing, hiding or filtering boxes does not recreate
 the HLS player. No inference runs per viewer.
 
-The demo labels native detector classes: person, car, motorcycle, bus and truck.
-Vehicle subtype/color classification, historical object search, cross-camera
-identity and the conversational UI are separate future work. Native IDs identify
-a track within one camera/session, not a persistent physical identity.
+The demo starts with native detector classes: person, car, motorcycle, bus and
+truck. Eligible cars, buses and trucks acquire a vehicle type and color from the
+same frozen SigLIP2 encoder and classifier heads used in replay. People and
+motorcycles keep their native labels. Historical object search, cross-camera
+identity and the conversational UI remain separate future work. Native IDs
+identify a track within one camera/session, not a persistent physical identity.
 
 ## Metadata and synchronization
 
@@ -36,6 +38,12 @@ the arrival time of an SSE message or to a fixed assumed latency. Geometry is
 interpolated only between the same ID/session/region revision; labels come from
 the current or earlier observation. Unknown segments, invalid coordinates and
 observations over 280 ms old are hidden. Empty observations clear prior boxes.
+
+Optional object `attributes` contain type/color labels and scores, the source PTS
+when the track qualified, and the three crop PTS. The browser rejects future or
+invalid crop times and only uses attributes from the current or past observation.
+The worker does not backfill labels into old frames. A paused image therefore
+keeps the classification available at that point in the video.
 
 Canvas coordinates account for the displayed video rectangle, letterboxing and
 device pixel ratio. The custom fullscreen button includes both video and canvas.
@@ -67,6 +75,21 @@ Host project: `/home/paal/Projects/senttra-live`.
 - Operational health: `/healthz/detections`, only an `ok` flag and service name.
   Camera names, positions and frames require authentication.
 
+Vehicle attributes use `live_attributes.py`: three crops at least 0.5 seconds
+apart, minimum 110×70 / 12,000 pixels, at least 15 vehicle observations and an 80%
+vehicle vote, then one prediction per native track. The encoder and both heads
+must match the existing replay checksums. The existing top-prediction policy is
+preserved; these outputs are estimates, not a new accuracy guarantee.
+
+One asynchronous classifier serves the shared detector. Its queue is capped at
+16 jobs, with 256 track states, 96 MiB of retained crops and expiry after 15 source
+seconds without a sighting. Sessions isolate camera restarts and area revisions;
+old jobs cannot label a reused ID. Model failure leaves native boxes available
+and reports `attributes.status=unavailable`. `--no-attributes` provides a native
+labels-only fallback. Rollback of just the attribute addition restores the prior
+`live_detector.py`, restarts only its managed unit, and reverts the frontend
+attribute change; video, metadata storage and saved areas remain intact.
+
 Backend installation and restart use the existing ops lock and preserve the
 receiver, camera configuration, stored recordings and saved regions. Rollback:
 revert this frontend change, stop/disable only `senttra-live-detections.service`,
@@ -89,6 +112,8 @@ uses temporary identities, not user sessions.
 The browser check defaults to a device pixel ratio of 0.8 (override with
 `EDGE_TEST_DPR`). It marks the entire right and bottom edges and verifies the next
 frame clears them, catching stale trails that only appear below a ratio of 1.
+`EDGE_TEST_ATTRIBUTES=1` also requires real type/color labels painted on the
+canvas and checks paused labels remain unchanged.
 
 API references: [video frame callbacks](https://developer.mozilla.org/en-US/docs/Web/API/HTMLVideoElement/requestVideoFrameCallback)
 and [SSE](https://developer.mozilla.org/en-US/docs/Web/API/Server-sent_events/Using_server-sent_events).

@@ -2,8 +2,12 @@
 
 import { useEffect, useRef, type RefObject } from "react";
 import { containedVideo, DetectionBuffer, fragmentPosition, type VideoFragment } from "@/lib/live-detections";
+import { TYPE, COLOR } from "@/lib/edge-replay";
 
-export type DetectionStatus = { status: string; stale?: boolean; fps_observed?: number; region_revision?: number };
+export type DetectionStatus = {
+  status: string; stale?: boolean; fps_observed?: number; region_revision?: number;
+  attributes?: { status: string };
+};
 
 type Props = {
   camera: string;
@@ -36,6 +40,7 @@ export function LiveDetectionOverlay({ camera, enabled, receiving, filter, video
       context.clearRect(0, 0, layer.width, layer.height);
       context.restore();
       layer.dataset.boxes = "0";
+      layer.dataset.attributed = "0";
       delete layer.dataset.segment;
       delete layer.dataset.offset;
     };
@@ -74,7 +79,9 @@ export function LiveDetectionOverlay({ camera, enabled, receiving, filter, video
         context.lineWidth -= 2;
         context.strokeStyle = color;
         context.strokeRect(x, y, w, h);
-        const text = `${object.label} #${object.id}`, textWidth = context.measureText(text).width + 8;
+        const attributes = object.attributes;
+        const name = attributes ? `${TYPE[attributes.type] ?? attributes.type} · ${COLOR[attributes.color] ?? attributes.color}` : object.label;
+        const text = `${name} #${object.id}`, textWidth = context.measureText(text).width + 8;
         const tx = Math.min(Math.max(area.x, x), area.x + area.width - textWidth);
         const ty = Math.max(area.y, y - 17);
         context.fillStyle = "rgba(0, 15, 8, .88)";
@@ -83,11 +90,15 @@ export function LiveDetectionOverlay({ camera, enabled, receiving, filter, video
         context.fillText(text, tx + 4, ty + 2);
       }
       layer.dataset.boxes = String(objects.length);
+      const attributed = objects.filter(object => object.attributes).length;
+      layer.dataset.attributed = String(attributed);
       layer.dataset.segment = position.segment;
       layer.dataset.offset = position.offset.toFixed(4);
       layer.dataset.observation = frame.offset.toFixed(4);
       layer.dataset.session = frame.session;
-      status(`${objects.length} ${objects.length === 1 ? "objeto" : "objetos"}`);
+      const details = attributed ? ` · ${attributed} con tipo y color`
+        : worker?.attributes?.status === "unavailable" ? " · Tipo/color no disponible" : "";
+      status(`${objects.length} ${objects.length === 1 ? "objeto" : "objetos"}${details}`);
     };
 
     let events: EventSource | null = null;

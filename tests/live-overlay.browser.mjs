@@ -14,6 +14,16 @@ try{
   deviceScaleFactor:Number(process.env.EDGE_TEST_DPR??.8)});
  await context.addInitScript(()=>{
   window.__hls=[];let exposed;
+  window.__overlayTexts=[];
+  const clear=CanvasRenderingContext2D.prototype.clearRect,paint=CanvasRenderingContext2D.prototype.fillText;
+  CanvasRenderingContext2D.prototype.clearRect=function(...args){
+   if(this.canvas.hasAttribute('data-detection-overlay'))window.__overlayTexts=[];
+   return clear.apply(this,args);
+  };
+  CanvasRenderingContext2D.prototype.fillText=function(value,...args){
+   if(this.canvas.hasAttribute('data-detection-overlay'))window.__overlayTexts.push(String(value));
+   return paint.call(this,value,...args);
+  };
   Object.defineProperty(window,'Hls',{configurable:true,get:()=>exposed,set:Actual=>{
    exposed=class extends Actual{constructor(config){super(config);window.__hls.push(this);}};
   }});
@@ -40,13 +50,20 @@ try{
    frames:v.getVideoPlaybackQuality().totalVideoFrames,dropped:v.getVideoPlaybackQuality().droppedVideoFrames,
    buffered:Array.from({length:v.buffered.length},(_,i)=>[v.buffered.start(i),v.buffered.end(i)]),
    seekable:Array.from({length:v.seekable.length},(_,i)=>[v.seekable.start(i),v.seekable.end(i)]),
-   boxes:Number(c?.dataset.boxes??0),segment:c?.dataset.segment,offset:Number(c?.dataset.offset),observation:Number(c?.dataset.observation),
+   boxes:Number(c?.dataset.boxes??0),attributed:Number(c?.dataset.attributed??0),labels:window.__overlayTexts,
+   segment:c?.dataset.segment,offset:Number(c?.dataset.offset),observation:Number(c?.dataset.observation),
    canvasWidth:c?.width,canvasHeight:c?.height,status:document.querySelector('[data-detection-status="little1"]')?.textContent,
    sameVideo:window.__originalVideo===v,fragment:h?.streamController?.fragPlaying?{
     start:h.streamController.fragPlaying.start,startPTS:h.streamController.fragPlaying.startPTS,
     video:h.streamController.fragPlaying.elementaryStreams?.video,url:h.streamController.fragPlaying.url}:null,
    level:typeof f==='number'?f:null};
  });
+ if(process.env.EDGE_TEST_ATTRIBUTES==='1'){
+  await page.waitForFunction(()=>Number(document.querySelector('[data-detection-overlay="little1"]')?.dataset.attributed)>0,null,{timeout:30000});
+  const classified=await sample();
+  assert.equal(classified.labels.filter(text=>/ · .+ #\d+$/.test(text)).length,classified.attributed);
+  result.classified=classified;
+ }
  result.initial=await sample();
  assert.equal(result.initial.width,1920);assert.equal(result.initial.height,1080);
  result.devicePixelRatio=await page.evaluate(()=>window.devicePixelRatio);
@@ -80,6 +97,7 @@ try{
  await page.waitForTimeout(1300);const paused=await sample();
  assert(Math.abs(paused.time-pause.time)<.02);assert.equal(paused.segment,pause.segment);
  assert(Math.abs(paused.offset-pause.offset)<.02);assert(paused.boxes>0);
+ assert.deepEqual(paused.labels,pause.labels,'A paused frame never receives labels from later observations');
  result.pause=paused;
  result.seekRequest=await video.evaluate(v=>{
   const before=v.currentTime,seekableStart=v.seekable.start(0),bufferedStart=v.buffered.start(0);
