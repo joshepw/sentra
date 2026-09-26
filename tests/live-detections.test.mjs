@@ -63,3 +63,41 @@ test('boxes follow the displayed video rectangle in portrait and fullscreen layo
  assert.deepEqual(containedVideo(1920,1080,1920,1080),{x:0,y:0,width:1920,height:1080});
  assert.equal(containedVideo(0,0,1920,1080),null);
 });
+
+const attributes={type:'camioneta',color:'gris',type_score:.9,color_score:.8,
+ ready_source_pts:11.4,view_source_pts:[10,10.5,11]};
+
+test('type and color are causal and never borrowed from an interpolated future frame',()=>{
+ const buffer=new DetectionBuffer();
+ buffer.append([frame(1.4,[object(3)],{source_pts:11.4}),
+  frame(1.5,[{...object(3,[.2,.2,.4,.4]),attributes}],{source_pts:11.5})],'little1');
+ assert.equal(buffer.at('video_seg1.mp4',1.45).objects[0].attributes,undefined);
+ assert.deepEqual(buffer.at('video_seg1.mp4',1.5).objects[0].attributes,attributes);
+ assert.equal(buffer.at('video_seg1.mp4',1.4).objects[0].attributes,undefined);
+});
+
+test('future crops, malformed scores and attributes on people or motorcycles are rejected',()=>{
+ const invalid=[
+  {attributes:{...attributes,ready_source_pts:12}},
+  {attributes:{...attributes,view_source_pts:[10,10.5,12]}},
+  {attributes:{...attributes,view_source_pts:[10,10.1,10.2]}},
+  {attributes:{...attributes,color_score:NaN}},
+  {attributes:{...attributes,type_score:1.1}},
+  {attributes:{...attributes,color:''}},
+  {attributes:null}, {attributes,class_id:0}, {attributes,class_id:3}
+ ];
+ for(const extra of invalid){
+  const buffer=new DetectionBuffer();
+  buffer.append([frame(1.5,[{...object(3),...extra}],{source_pts:11.5})],'little1');
+  assert.equal(buffer.count,0);
+ }
+});
+
+test('a new session or empty observations do not retain earlier type and color',()=>{
+ const buffer=new DetectionBuffer();
+ buffer.append([frame(1.5,[{...object(3),attributes}],{source_pts:11.5}),
+  frame(1.6,[object(3)],{source_pts:11.6,session:'new'}),
+  frame(1.7,[],{source_pts:11.7,session:'new'})],'little1');
+ assert.equal(buffer.at('video_seg1.mp4',1.6).objects[0].attributes,undefined);
+ assert.equal(buffer.at('video_seg1.mp4',1.7).objects.length,0);
+});
