@@ -1,5 +1,5 @@
-import { EdgeTrafficViewer } from "@/components/sentra/edge-traffic-viewer";
+import { EdgeLiveViewer } from "@/components/sentra/edge-live-viewer";
 
 export default function EdgePage() {
-  return <EdgeTrafficViewer />;
+  return <EdgeLiveViewer />;
 }
