@@ -118,7 +118,7 @@ export function EdgeTrafficViewer() {
     <div className="w-full max-w-[380px] rounded-2xl border border-[var(--border-strong)] bg-bg-panel p-8">
       <div className="mb-6 flex items-center gap-2.5"><SentraLogoMark size={28} /><SentraWordmark /><span className="ml-1 font-mono text-[9px] font-bold uppercase tracking-[0.3em] text-warning">Edge</span></div>
       {signedOut ? <><p className="mb-5 font-mono text-[11px] leading-relaxed text-text-muted">Entrá a Senttra para ver las cámaras del corredor.</p>
-        <a href="/edge/auth/login" className="block w-full rounded-lg bg-accent px-4 py-2.5 text-center font-display text-sm font-bold text-[#062017] hover:opacity-90">Entrar con Zitadel</a></>
+        <a href="/edge/auth/login?next=%2Fedge%2Freplay" className="block w-full rounded-lg bg-accent px-4 py-2.5 text-center font-display text-sm font-bold text-[#062017] hover:opacity-90">Entrar con Zitadel</a></>
         : <p className="font-mono text-sm text-text-muted">{error || "Conectando con la estación local…"}</p>}
       {error && !signedOut && <button onClick={() => window.location.reload()} className={`mt-5 ${button} ${active}`}>Reintentar</button>}
     </div>
@@ -130,7 +130,7 @@ export function EdgeTrafficViewer() {
   return <div className="min-h-screen w-full bg-bg text-text">
     <header className="sticky top-0 z-50 flex items-center justify-between gap-4 border-b border-[var(--border)] bg-[rgba(8,20,17,0.9)] px-6 py-4 backdrop-blur-md">
       <Link href="/" className="flex items-center gap-2.5"><SentraLogoMark size={26} /><SentraWordmark /><span className="ml-1 font-mono text-[9px] font-bold uppercase tracking-[0.3em] text-accent">Edge</span></Link>
-      <div className="flex items-center gap-4 text-right font-mono text-[11px] leading-relaxed text-text-faint"><Link href="/edge/live" className="text-accent hover:underline">En vivo e historial</Link><span className="hidden sm:block">Monitoreo de tráfico · SPS<br />Grabaciones locales · <span className="text-accent">11 cámaras</span></span><button onClick={logout} className="hover:text-accent">Salir</button></div>
+      <div className="flex items-center gap-4 text-right font-mono text-[11px] leading-relaxed text-text-faint"><Link href="/edge" className="text-accent hover:underline">En vivo e historial</Link><span className="hidden sm:block">Monitoreo de tráfico · SPS<br />Grabaciones locales · <span className="text-accent">11 cámaras</span></span><button onClick={logout} className="hover:text-accent">Salir</button></div>
     </header>
     <main className="mx-auto max-w-[1600px] px-4 py-6 sm:px-6">
       <div className="mb-4 grid grid-cols-2 divide-[var(--border)] overflow-hidden rounded-2xl border border-[var(--border-strong)] bg-bg-panel lg:grid-cols-4 lg:divide-x">

@@ -25,6 +25,7 @@ declare global {
 type Camera = {
   key: string; title: string; url: string; receiving: boolean; bitrate_bps?: number;
   last_progress_age?: number;
+  encoding?: { mode: "compressed" | "original"; bitrate_kbps?: number };
   archive?: { segments: number; seconds: number; last: number; problem_segments: number };
 };
 type LiveState = {
@@ -113,8 +114,8 @@ function LiveCamera({ camera, ready, goLive }: { camera: Camera; ready: boolean;
       {!camera.receiving && <div className="absolute inset-0 grid place-items-center bg-black/90 px-4 text-center text-sm text-text-faint">La cámara no está enviando video.</div>}
     </div>
     <div className="flex justify-between gap-3 px-3 py-2 font-mono text-[10px] text-text-faint">
-      <span>{camera.archive?.segments ?? 0} segmentos guardados</span>
-      <span>{camera.archive?.problem_segments ? `${camera.archive.problem_segments} para revisar` : "Video original"}</span>
+      <span>{camera.archive?.segments ?? 0} segmentos guardados{camera.archive?.problem_segments ? ` · ${camera.archive.problem_segments} con incidencias en el archivo` : ""}</span>
+      <span>{camera.encoding?.mode === "compressed" ? `Comprimido · ${(camera.encoding.bitrate_kbps ?? 1000) / 1000} Mbps` : "Video original"}</span>
     </div>
   </article>;
 }
@@ -248,11 +249,11 @@ export function EdgeLiveViewer() {
     <Script src="/senttra/hls.min.js" strategy="afterInteractive" onReady={() => setReady(true)} />
     <header className="sticky top-0 z-50 flex flex-wrap items-center justify-between gap-3 border-b border-[var(--border)] bg-[rgba(8,20,17,0.95)] px-5 py-4 backdrop-blur-md">
       <Link href="/" className="flex items-center gap-2.5"><SentraLogoMark size={26} /><SentraWordmark /><span className="font-mono text-[10px] uppercase tracking-widest text-accent">Edge</span></Link>
-      <nav className="flex flex-wrap items-center gap-3 font-mono text-xs"><Link href="/edge" className="text-text-faint hover:text-accent">Pruebas de IA</Link><span className="text-accent">En vivo e historial</span><button className="cursor-pointer text-text-faint hover:text-accent" onClick={logout}>Salir</button></nav>
+      <nav className="flex flex-wrap items-center gap-3 font-mono text-xs"><Link href="/edge/replay" className="text-text-faint hover:text-accent">Pruebas de IA</Link><span className="text-accent">En vivo e historial</span><button className="cursor-pointer text-text-faint hover:text-accent" onClick={logout}>Salir</button></nav>
     </header>
     <div className="mx-auto max-w-[1920px] p-4 sm:p-6">
       <div className="mb-5 flex flex-wrap items-end justify-between gap-4">
-        <div><h1 className="text-2xl tracking-tight">Cámaras y grabaciones</h1><p className="mt-1 text-sm text-text-faint">{cameras ? `${cameras.filter(row => row.receiving).length} de ${cameras.length} cámaras con señal` : "Conectando con Senttra…"} · video original</p></div>
+        <div><h1 className="text-2xl tracking-tight">Cámaras y grabaciones</h1><p className="mt-1 text-sm text-text-faint">{cameras ? `${cameras.filter(row => row.receiving).length} de ${cameras.length} cámaras con señal` : "Conectando con Senttra…"} · transmisión en vivo</p></div>
         <div className="flex gap-2" aria-label="Modo de video">
           <button className={`${button} ${mode === "live" ? "border-accent text-accent" : ""}`} aria-pressed={mode === "live"} onClick={() => setMode("live")}>En vivo</button>
           <button className={`${button} ${mode === "history" ? "border-accent text-accent" : ""}`} aria-pressed={mode === "history"} onClick={() => setMode("history")}>Historial</button>
