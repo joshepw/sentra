@@ -25,7 +25,8 @@ declare global {
 type Camera = {
   key: string; title: string; url: string; receiving: boolean; bitrate_bps?: number;
   last_progress_age?: number;
-  encoding?: { mode: "compressed" | "original"; bitrate_kbps?: number };
+  availability_note?: string;
+  encoding?: { mode: "compressed" | "original"; bitrate_kbps?: number } | null;
   archive?: { segments: number; seconds: number; last: number; problem_segments: number };
 };
 type LiveState = {
@@ -111,11 +112,11 @@ function LiveCamera({ camera, ready, goLive }: { camera: Camera; ready: boolean;
     </div>
     <div className="relative aspect-video bg-black">
       <video ref={video} data-live-video={camera.key} muted autoPlay playsInline controls className="h-full w-full" />
-      {!camera.receiving && <div className="absolute inset-0 grid place-items-center bg-black/90 px-4 text-center text-sm text-text-faint">La cámara no está enviando video.</div>}
+      {!camera.receiving && <div className="absolute inset-0 grid place-items-center bg-black/90 px-4 text-center text-sm text-text-faint">{camera.availability_note || "La cámara no está enviando video."}</div>}
     </div>
     <div className="flex justify-between gap-3 px-3 py-2 font-mono text-[10px] text-text-faint">
       <span>{camera.archive?.segments ?? 0} segmentos guardados{camera.archive?.problem_segments ? ` · ${camera.archive.problem_segments} con incidencias en el archivo` : ""}</span>
-      <span>{camera.encoding?.mode === "compressed" ? `Comprimido · ${(camera.encoding.bitrate_kbps ?? 1000) / 1000} Mbps` : "Video original"}</span>
+      <span>{camera.encoding?.mode === "compressed" ? `Comprimido · ${(camera.encoding.bitrate_kbps ?? 1000) / 1000} Mbps` : camera.encoding?.mode === "original" ? "Video original" : "Sin transmisión"}</span>
     </div>
   </article>;
 }
