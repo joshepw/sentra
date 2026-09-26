@@ -86,5 +86,9 @@ segments, transparent clearing, preserved video identity, pause, buffered seek,
 filters, fullscreen, mobile layout, network recovery and logout. The fixture
 uses temporary identities, not user sessions.
 
+The browser check defaults to a device pixel ratio of 0.8 (override with
+`EDGE_TEST_DPR`). It marks the entire right and bottom edges and verifies the next
+frame clears them, catching stale trails that only appear below a ratio of 1.
+
 API references: [video frame callbacks](https://developer.mozilla.org/en-US/docs/Web/API/HTMLVideoElement/requestVideoFrameCallback)
 and [SSE](https://developer.mozilla.org/en-US/docs/Web/API/Server-sent_events/Using_server-sent_events).
