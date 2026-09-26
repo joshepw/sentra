@@ -247,8 +247,8 @@ export function EdgeLiveViewer() {
   const [error, setError] = useState("");
   const [ready, setReady] = useState(false);
   const [mode, setMode] = useState<"live" | "history">("live");
-  const [selected, setSelected] = useState(0);
-  const [all, setAll] = useState(true);
+  const [selectedKey, setSelectedKey] = useState("little");
+  const [all, setAll] = useState(false);
   const [goLive, setGoLive] = useState(0);
   const expired = useCallback(() => { setDenied(true); setState(null); }, []);
   useEffect(() => {
@@ -266,8 +266,12 @@ export function EdgeLiveViewer() {
     void poll(); return () => { controller.abort(); if (timer) clearTimeout(timer); };
   }, [expired]);
   const cameras = state?.cameras;
+  const selected = Math.max(0, cameras?.findIndex(camera => camera.key === selectedKey) ?? 0);
   const mapCameras = useMemo(() => cameras?.map(camera => ({ id: camera.key, nombre: camera.title, n_giro: 0, n_rojo: 0 })) ?? [], [cameras]);
-  const pick = useCallback((index: number) => setSelected(index), []);
+  const pick = useCallback((index: number) => {
+    const key = cameras?.[index]?.key;
+    if (key) setSelectedKey(key);
+  }, [cameras]);
   const logout = async () => {
     try {
       const response = await fetch("/edge/auth/logout", { method: "POST", headers: { "X-CSRF-Token": state?.user.csrf ?? "" } });
@@ -281,7 +285,7 @@ export function EdgeLiveViewer() {
     <p className="mb-6 text-sm text-text-faint">Entrá con tu cuenta de Senttra para ver las cámaras.</p>
     <a href="/edge/auth/login?next=%2Fedge%2Flive" className={`${button} inline-block border-accent text-accent`}>Entrar con Zitadel</a>
   </div></main>;
-  const camera = cameras?.[Math.min(selected, Math.max(0, cameras.length - 1))];
+  const camera = cameras?.[selected];
   return <main className="min-h-screen bg-bg-page text-text">
     <Script src="/senttra/hls.min.js" strategy="afterInteractive" onReady={() => setReady(true)} />
     <header className="sticky top-0 z-50 flex flex-wrap items-center justify-between gap-3 border-b border-[var(--border)] bg-[rgba(8,20,17,0.95)] px-5 py-4 backdrop-blur-md">
@@ -302,7 +306,7 @@ export function EdgeLiveViewer() {
         <aside className="space-y-4">
           <section className={`${panel} overflow-hidden`} aria-label="Mapa de cámaras"><Map cams={mapCameras} sel={selected} onPick={pick} admin={false} api="" token="" loadSavedLayout={false} /></section>
           <div className={`${panel} p-3`} aria-label="Selección de cámara">
-            {cameras?.map((row, index) => <button key={row.key} aria-pressed={selected === index} onClick={() => setSelected(index)} className={`mb-1 flex w-full cursor-pointer items-center justify-between gap-2 rounded-lg px-3 py-3 text-left text-sm ${selected === index ? "bg-[#123a2a] text-accent" : "text-text-faint hover:bg-[#123a2a]/50"}`}>
+            {cameras?.map((row, index) => <button key={row.key} aria-pressed={selected === index} onClick={() => setSelectedKey(row.key)} className={`mb-1 flex w-full cursor-pointer items-center justify-between gap-2 rounded-lg px-3 py-3 text-left text-sm ${selected === index ? "bg-[#123a2a] text-accent" : "text-text-faint hover:bg-[#123a2a]/50"}`}>
               <span>{row.title}</span><span title={row.receiving ? "Recibiendo video" : "Sin señal"} className={`h-2 w-2 shrink-0 rounded-full ${row.receiving ? "bg-accent" : "bg-warning"}`} />
             </button>)}
           </div>
