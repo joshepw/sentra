@@ -3,6 +3,7 @@
 import Link from "next/link";
 import Script from "next/script";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { HistoryChat } from "@/components/sentra/history-chat";
 import { CorridorMap } from "@/components/sentra/corridor-map";
 import { SentraLogoMark, SentraWordmark } from "@/components/sentra/ui";
 import { LiveDetectionOverlay, type DetectionStatus } from "@/components/sentra/live-detection-overlay";
@@ -302,6 +303,7 @@ export function EdgeLiveViewer() {
       </div>
       {error && <p role="alert" className="mb-4 rounded-lg border border-warning/30 p-3 text-sm text-warning">{error}</p>}
       {state?.storage.accepting === false && <p role="alert" className="mb-4 rounded-lg border border-warning/30 p-3 text-sm text-warning">La grabación está pausada para conservar el espacio libre del disco.</p>}
+      {state && <HistoryChat csrf={state.user.csrf} onExpired={expired} />}
       <div className="grid gap-5 xl:grid-cols-[340px_minmax(0,1fr)]">
         <aside className="space-y-4">
           <section className={`${panel} overflow-hidden`} aria-label="Mapa de cámaras"><Map cams={mapCameras} sel={selected} onPick={pick} admin={false} api="" token="" loadSavedLayout={false} /></section>
