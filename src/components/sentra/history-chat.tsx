@@ -256,7 +256,7 @@ export function HistoryChat({ csrf, onExpired, viewer, onView, cameras, children
         {filters.type && <span>· {TYPE[String(filters.type)] ?? filters.type}</span>}{filters.color && <span>· {COLOR[String(filters.color)] ?? filters.color}</span>}
         {filters.kind && <span>· {filters.kind === "uturn" ? "Vueltas en U" : "Cruces en rojo"}</span>}
         {filters.review && <span>· {filters.review === "confirmed" ? "Confirmadas" : filters.review === "dismissed" ? "Descartadas" : "Pendientes"}</span>}
-        {filters.start && filters.end && <span>· {historyTime(Number(filters.start))} a {historyTime(Number(filters.end))}</span>}
+        {filters.start && filters.end && <span>· {historyTime(filters.start)} a {historyTime(filters.end)}</span>}
       </div>}
     </div>
     <div className="grid min-h-0 flex-1 grid-rows-[minmax(160px,34dvh)_minmax(80px,1fr)] gap-3 px-3 pb-3 sm:px-5 lg:grid-cols-[minmax(0,1fr)_360px] lg:grid-rows-1">

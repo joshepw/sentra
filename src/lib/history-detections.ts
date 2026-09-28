@@ -25,10 +25,28 @@ export type ToolResult = {
   cameras?: { camera: string; title: string; receiving: boolean }[];
 };
 
-export const historyTime = (seconds: number, date = true) => new Intl.DateTimeFormat("es-HN", {
-  timeZone: "America/Tegucigalpa", ...(date ? { day: "2-digit", month: "short" } : {}),
-  hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: true,
-}).format(new Date(seconds * 1000));
+export function historyTime(value: number | string | null | undefined, date = true) {
+  let milliseconds = NaN;
+  if (typeof value === "number") milliseconds = value * 1000;
+  else if (typeof value === "string") {
+    const text = value.trim();
+    if (/^\d{9,10}(?:\.\d{1,9})?$/.test(text)) milliseconds = Number(text) * 1000;
+    else if (/^\d{4}-\d{2}-\d{2}(?:$|[T ])/.test(text)) {
+      const local = text.length === 10 ? `${text}T00:00:00` : text.replace(" ", "T");
+      // The API treats a date without a zone as Honduras, regardless of the
+      // browser's timezone. Explicit offsets and UTC keep their original instant.
+      const zoned = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(local) ? local
+        : /[+-]\d{2}$/.test(local) ? `${local}:00` : `${local}-06:00`;
+      milliseconds = Date.parse(zoned);
+    }
+  }
+  const instant = new Date(milliseconds);
+  if (!Number.isFinite(instant.getTime())) return "Hora no disponible";
+  return new Intl.DateTimeFormat("es-HN", {
+    timeZone: "America/Tegucigalpa", ...(date ? { day: "2-digit", month: "short" } : {}),
+    hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: true,
+  }).format(instant);
+}
 
 export function historyFrameAt(frames: HistoryFrame[], at: number): HistoryFrame | null {
   if (!Number.isFinite(at)) return null;
