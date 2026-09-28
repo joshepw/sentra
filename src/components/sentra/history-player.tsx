@@ -21,18 +21,21 @@ export function HistoryPlayer({ playback, item, onClose, onExpired, onReview }: 
     const abort = new AbortController();
     const load = async () => {
       try {
-        const params = new URLSearchParams({ camera: playback.camera, start: String(playback.at - 60), end: String(playback.at + 120) });
+        const trajectoryStart = item?.details?.trajectory?.[0]?.[0];
+        const lead = item?.kind === "uturn" ? Math.max(playback.at - 60, Math.min(playback.at - 12, (trajectoryStart ?? playback.at) - 1)) : playback.at - 4;
+        const params = new URLSearchParams({ camera: playback.camera, start: String(playback.at - 70), end: String(playback.at + 120) });
         const response = await fetch(`/edge/api/live/archive?${params}`, { cache: "no-store", signal: abort.signal });
         if (response.status === 401) { onExpired(); return; }
         if (!response.ok) throw new Error("No se pudo abrir la grabación.");
         const data: { segments: Segment[] } = await response.json();
-        const row = data.segments.find(s => s.started <= playback.at && s.ended > playback.at);
+        const row = data.segments.find(s => s.started <= lead && s.ended > lead)
+          ?? data.segments.find(s => s.started <= playback.at && s.ended > playback.at);
         if (!row) throw new Error("No hay video guardado para este instante.");
-        if (!abort.signal.aborted) { setSegments(data.segments); setSegment(row); setInitial(Math.max(row.started, playback.at - (item?.kind === "uturn" ? 12 : 4))); }
+        if (!abort.signal.aborted) { setSegments(data.segments); setSegment(row); setInitial(Math.max(row.started, lead)); }
       } catch (reason) { if (!abort.signal.aborted) setError((reason as Error).message); }
     };
     void load(); return () => abort.abort();
-  }, [playback, item?.kind, onExpired]);
+  }, [playback, item?.kind, item?.details?.trajectory, onExpired]);
   useEffect(() => {
     if (!segment) return;
     const abort = new AbortController();
