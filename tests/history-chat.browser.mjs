@@ -33,6 +33,7 @@ try {
  await page.getByRole('button',{name:'Ocultar cajas',exact:true}).click();await page.waitForFunction(()=>document.querySelector('[data-history-overlay]')?.dataset.boxes==='0');
  await page.getByRole('button',{name:'Mostrar cajas',exact:true}).click();await page.waitForFunction(()=>Number(document.querySelector('[data-history-overlay]')?.dataset.boxes)>0);
  await page.screenshot({path:output+'/history-desktop.png',fullPage:true});
+ await page.getByRole('button',{name:'Cerrar video',exact:true}).click();
  await page.getByRole('button',{name:'Otras cámaras',exact:true}).first().click();
  await page.getByText(/Sugerencias de apariencia/).waitFor({timeout:30000});evidence.visualCandidates=true;
  await page.getByRole('button',{name:'Cruces en rojo',exact:true}).click();await page.getByText(/incidencias con esos filtros/).waitFor({timeout:90000});

@@ -12,11 +12,27 @@ export function HistoryPlayer({ playback, item, onClose, onExpired, onReview }: 
   playback: Playback; item?: HistoryItem; onClose: () => void; onExpired: () => void;
   onReview: (uid: string, decision: string) => Promise<void>;
 }) {
+  const dialog = useRef<HTMLDialogElement>(null), closeButton = useRef<HTMLButtonElement>(null);
   const video = useRef<HTMLVideoElement>(null), canvas = useRef<HTMLCanvasElement>(null), caption = useRef<HTMLSpanElement>(null);
   const [segments, setSegments] = useState<Segment[]>([]), [segment, setSegment] = useState<Segment | null>(null);
   const [initial, setInitial] = useState(playback.at - 4), [error, setError] = useState("");
   const [frames, setFrames] = useState<HistoryFrame[]>([]), [focus, setFocus] = useState<{ local_id: number; session: string } | null>(null);
   const [boxes, setBoxes] = useState(true), [position, setPosition] = useState(playback.at), [reviewing, setReviewing] = useState(false);
+  const [needsPlay, setNeedsPlay] = useState(false);
+  useEffect(() => {
+    const element = dialog.current;
+    if (!element) return;
+    const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    element.showModal();
+    closeButton.current?.focus({ preventScroll: true });
+    return () => {
+      element.close();
+      document.body.style.overflow = previousOverflow;
+      previousFocus?.focus({ preventScroll: true });
+    };
+  }, []);
   useEffect(() => {
     const abort = new AbortController();
     const load = async () => {
@@ -113,17 +129,27 @@ export function HistoryPlayer({ playback, item, onClose, onExpired, onReview }: 
     if (!item) return; setReviewing(true);
     try { await onReview(item.uid, decision); } catch (reason) { setError((reason as Error).message); } finally { setReviewing(false); }
   };
-  return <section aria-label="Video del resultado" className="mt-4 rounded-xl border border-accent/40 bg-[#08130f] p-3">
-    <div className="mb-3 flex flex-wrap items-center justify-between gap-2"><div><p className="text-sm text-accent">{item?.title ?? playback.camera} · grabación</p><p className="mt-1 text-xs text-text-faint">{historyTime(position)} · Honduras · hora de recepción</p></div><div className="flex gap-2"><button className={button} aria-pressed={boxes} onClick={() => setBoxes(!boxes)}>{boxes ? "Ocultar cajas" : "Mostrar cajas"}</button><button className={button} onClick={onClose}>Cerrar video</button></div></div>
+  const play = () => {
+    const element = video.current;
+    if (element) void element.play().catch(() => { if (video.current === element && !element.error) setNeedsPlay(true); });
+  };
+  return <dialog ref={dialog} aria-label="Video del resultado" onCancel={event => { event.preventDefault(); onClose(); }}
+    className="fixed inset-0 m-auto max-h-[calc(100dvh_-_1.5rem)] w-[calc(100%_-_1.5rem)] max-w-5xl overflow-y-auto overscroll-contain rounded-xl border border-accent/40 bg-[#08130f] p-0 text-text shadow-2xl backdrop:bg-black/75">
+    <div className="sticky top-0 z-10 flex flex-wrap items-center justify-between gap-2 bg-[#08130f] p-3"><div><p className="text-sm text-accent">{item?.title ?? playback.camera} · grabación</p><p className="mt-1 text-xs text-text-faint">{historyTime(position)} · Honduras · hora de recepción</p></div><div className="flex gap-2"><button className={button} aria-pressed={boxes} onClick={() => setBoxes(!boxes)}>{boxes ? "Ocultar cajas" : "Mostrar cajas"}</button><button ref={closeButton} className={button} onClick={onClose}>Cerrar video</button></div></div>
+    <div className="p-3 pt-0">
     {error && <p role="status" className="mb-3 text-sm text-warning">{error}</p>}
-    {!segment && !error && <p className="p-8 text-sm text-text-faint">Abriendo video…</p>}
+    {!segment && !error && <p role="status" className="p-8 text-sm text-text-faint">Abriendo video…</p>}
     {segment && <div className="relative overflow-hidden rounded-lg bg-black">
-      <video key={segment.id} ref={video} src={segment.url} data-result-video controls autoPlay muted playsInline className="max-h-[65vh] w-full"
+      <video key={segment.id} ref={video} src={segment.url} data-result-video controls autoPlay muted playsInline className="max-h-[60dvh] w-full"
         onLoadedMetadata={() => { if (video.current) video.current.currentTime = Math.min(Math.max(0, initial - segment.started), Math.max(0, video.current.duration - .1)); }}
+        onLoadedData={play} onPlaying={() => setNeedsPlay(false)}
+        onError={() => setError("No se pudo reproducir la grabación. Cerrá el video y volvé a abrirlo.")}
         onTimeUpdate={() => setPosition(segment.started + (video.current?.currentTime ?? 0))} onEnded={advance} />
       <canvas ref={canvas} data-history-overlay aria-label="Cajas históricas" className="pointer-events-none absolute inset-0 h-full w-full" />
       <span ref={caption} className="pointer-events-none absolute bottom-12 left-2 rounded bg-black/75 px-2 py-1 font-mono text-[10px] text-white" />
     </div>}
+    {needsPlay && !error && <button className={`${button} mt-3 text-accent`} onClick={play}>Reproducir video</button>}
     {item?.kind && <div className="mt-3 flex flex-wrap items-center gap-2 text-xs"><span className="mr-auto text-text-faint">{item.kind === "uturn" ? "Posible vuelta en U" : "Posible cruce en rojo"} · {item.review === "confirmed" ? "Confirmada en revisión" : item.review === "dismissed" ? "Descartada en revisión" : "Pendiente de revisión"}</span><button disabled={reviewing} className={button} onClick={() => void review("confirmed")}>Confirmar incidencia</button><button disabled={reviewing} className={button} onClick={() => void review("dismissed")}>Descartar</button><button disabled={reviewing} className={button} onClick={() => void review("candidate")}>Dejar pendiente</button>{item.clip_url && <a href={item.clip_url} download className={button}>Descargar evidencia</a>}</div>}
-  </section>;
+    </div>
+  </dialog>;
 }
