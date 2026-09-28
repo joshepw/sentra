@@ -1,6 +1,6 @@
 # Private camera history in Edge
 
-The chat above the camera map searches the edge computer's durable observation
+The bottom text/microphone bar searches the edge computer's durable observation
 index. A selected analysis supplies dates for questions such as “pailas rojas
 de este tramo”. Explicit dates, including “ayer”, use Honduras time and remain
 separate from that selection. Results count appearances per camera/tracking
@@ -57,14 +57,24 @@ Refining a search preserves its existing filters. Conversations are scoped to a
 browser instance as well as the authenticated user.
 
 The assistant can select a camera, show all cameras, toggle boxes, close the result
-player and open a numbered card. These are validated browser actions. A job pauses
+player, open a numbered card, move to the next/previous result, pause/resume and
+seek up to 120 seconds in either direction. These are validated browser actions. A job pauses
 at `waiting_action`; the client checks the view revision, applies the action, then
 posts `chat/{id}/applied`. Text and speech confirm only after that receipt. A
 changed view rejects the action. Existing read-only MCP tools remain available;
 they do not gain filesystem or service-control access.
 
-The result player includes the same text/microphone composer, so box controls also
-work while its dialog is open. Box visibility is shared with the live viewer and
-does not replace the playing video element. Original video and metadata paths are
-unchanged. Validate with `tests/voice-controls.browser.mjs` and the matching backend
-chat regressions; these tests use an isolated identity and a copy of the index.
+The result video occupies the main panel, beside a separately scrolling numbered
+list (below it on mobile). Camera, period and search filters stay visible. The
+composer stays at the bottom and the conversation expands above it. Response audio
+pauses during recording or a new request. Box visibility is shared with the live
+viewer and does not replace the playing video element. Original video and metadata
+paths are unchanged.
+
+Next-result navigation loads the following page when necessary and reports the end
+of the list. Relative seeks preserve pause across archive segments and wait for the
+browser's seek to finish. Missing intervals and playback failures return failure
+receipts, without spoken success. Commands require a selected result in the current
+list. Validate this layout with `tests/investigation-viewer.browser.mjs` and the
+matching backend chat regressions; the fixture uses an isolated identity and a
+copy of the index, with original video and local Whisper/Gemma/TTS.
