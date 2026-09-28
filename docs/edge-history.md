@@ -47,3 +47,24 @@ reply audio, explicit dates outside coverage, mobile width and logout.
 Deployment requires the matching history/chat backend before this frontend.
 Rollback can revert the frontend commit independently; retaining the durable
 history and original recordings preserves all collected data.
+
+## Conversational viewer prototype
+
+Each question includes the current camera, box visibility, period/filter context
+and ordered IDs of the visible cards. Numbered references use that list, including
+an empty list, so an older conversation cannot silently reopen an old result.
+Refining a search preserves its existing filters. Conversations are scoped to a
+browser instance as well as the authenticated user.
+
+The assistant can select a camera, show all cameras, toggle boxes, close the result
+player and open a numbered card. These are validated browser actions. A job pauses
+at `waiting_action`; the client checks the view revision, applies the action, then
+posts `chat/{id}/applied`. Text and speech confirm only after that receipt. A
+changed view rejects the action. Existing read-only MCP tools remain available;
+they do not gain filesystem or service-control access.
+
+The result player includes the same text/microphone composer, so box controls also
+work while its dialog is open. Box visibility is shared with the live viewer and
+does not replace the playing video element. Original video and metadata paths are
+unchanged. Validate with `tests/voice-controls.browser.mjs` and the matching backend
+chat regressions; these tests use an isolated identity and a copy of the index.

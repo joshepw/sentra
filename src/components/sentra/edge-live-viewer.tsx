@@ -4,6 +4,7 @@ import Link from "next/link";
 import Script from "next/script";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { HistoryChat } from "@/components/sentra/history-chat";
+import type { ViewerState, ViewChanges } from "@/lib/viewer-actions";
 import { CorridorMap } from "@/components/sentra/corridor-map";
 import { SentraLogoMark, SentraWordmark } from "@/components/sentra/ui";
 import { LiveDetectionOverlay, type DetectionStatus } from "@/components/sentra/live-detection-overlay";
@@ -53,11 +54,10 @@ const timeText = (seconds: number, date = false) => new Intl.DateTimeFormat("es-
 const inputTime = (seconds: number) => new Date((seconds - 6 * 3600) * 1000).toISOString().slice(0, 16);
 const Map = memo(CorridorMap);
 
-function LiveCamera({ camera, ready, goLive }: { camera: Camera; ready: boolean; goLive: number }) {
+function LiveCamera({ camera, ready, goLive, showBoxes, onBoxes }: { camera: Camera; ready: boolean; goLive: number; showBoxes: boolean; onBoxes: (boxes: boolean) => void }) {
   const video = useRef<HTMLVideoElement>(null);
   const stage = useRef<HTMLDivElement>(null);
   const fragments = useRef<VideoFragment[]>([]);
-  const [showBoxes, setShowBoxes] = useState(true);
   const [filter, setFilter] = useState<"all" | "vehicles" | "people">("all");
   const [status, setStatus] = useState("Conectando…");
   useEffect(() => {
@@ -138,7 +138,7 @@ function LiveCamera({ camera, ready, goLive }: { camera: Camera; ready: boolean;
     <div className="flex flex-wrap items-center gap-2 border-t border-[var(--border)] px-3 py-2 font-mono text-[10px] text-text-faint">
       {camera.detections && <>
         <label className="flex cursor-pointer items-center gap-2 py-1 text-text">
-          <input type="checkbox" checked={showBoxes} onChange={event => setShowBoxes(event.target.checked)} className="accent-[#57f1aa]" />
+          <input type="checkbox" checked={showBoxes} onChange={event => onBoxes(event.target.checked)} className="accent-[#57f1aa]" />
           Mostrar cajas
         </label>
         <select aria-label={`Filtrar detecciones de ${camera.title}`} value={filter} onChange={event => setFilter(event.target.value as typeof filter)}
@@ -247,9 +247,15 @@ export function EdgeLiveViewer() {
   const [denied, setDenied] = useState(false);
   const [error, setError] = useState("");
   const [ready, setReady] = useState(false);
-  const [mode, setMode] = useState<"live" | "history">("live");
-  const [selectedKey, setSelectedKey] = useState("little");
-  const [all, setAll] = useState(false);
+  const [view, setView] = useState<ViewerState>({ camera: "little", all: false, boxes: true, mode: "live", revision: 0 });
+  const { mode, camera: selectedKey, all } = view;
+  const changeView = useCallback((changes: ViewChanges) => {
+    const { close_video: _close, ...patch } = changes;
+    void _close;
+    setView(previous => ({ ...previous, ...patch, revision: previous.revision + 1 }));
+  }, []);
+  const setMode = (mode: ViewerState["mode"]) => changeView({ mode });
+  const setAll = (all: boolean) => changeView({ all });
   const [goLive, setGoLive] = useState(0);
   const expired = useCallback(() => { setDenied(true); setState(null); }, []);
   useEffect(() => {
@@ -271,8 +277,8 @@ export function EdgeLiveViewer() {
   const mapCameras = useMemo(() => cameras?.map(camera => ({ id: camera.key, nombre: camera.title, n_giro: 0, n_rojo: 0 })) ?? [], [cameras]);
   const pick = useCallback((index: number) => {
     const key = cameras?.[index]?.key;
-    if (key) setSelectedKey(key);
-  }, [cameras]);
+    if (key) changeView({ camera: key });
+  }, [cameras, changeView]);
   const logout = async () => {
     try {
       const response = await fetch("/edge/auth/logout", { method: "POST", headers: { "X-CSRF-Token": state?.user.csrf ?? "" } });
@@ -303,12 +309,12 @@ export function EdgeLiveViewer() {
       </div>
       {error && <p role="alert" className="mb-4 rounded-lg border border-warning/30 p-3 text-sm text-warning">{error}</p>}
       {state?.storage.accepting === false && <p role="alert" className="mb-4 rounded-lg border border-warning/30 p-3 text-sm text-warning">La grabación está pausada para conservar el espacio libre del disco.</p>}
-      {state && <HistoryChat csrf={state.user.csrf} onExpired={expired} />}
+      {state && <HistoryChat csrf={state.user.csrf} onExpired={expired} viewer={view} onView={changeView} />}
       <div className="grid gap-5 xl:grid-cols-[340px_minmax(0,1fr)]">
         <aside className="space-y-4">
           <section className={`${panel} overflow-hidden`} aria-label="Mapa de cámaras"><Map cams={mapCameras} sel={selected} onPick={pick} admin={false} api="" token="" loadSavedLayout={false} /></section>
           <div className={`${panel} p-3`} aria-label="Selección de cámara">
-            {cameras?.map((row, index) => <button key={row.key} aria-pressed={selected === index} onClick={() => setSelectedKey(row.key)} className={`mb-1 flex w-full cursor-pointer items-center justify-between gap-2 rounded-lg px-3 py-3 text-left text-sm ${selected === index ? "bg-[#123a2a] text-accent" : "text-text-faint hover:bg-[#123a2a]/50"}`}>
+            {cameras?.map((row, index) => <button key={row.key} aria-pressed={selected === index} onClick={() => changeView({ camera: row.key })} className={`mb-1 flex w-full cursor-pointer items-center justify-between gap-2 rounded-lg px-3 py-3 text-left text-sm ${selected === index ? "bg-[#123a2a] text-accent" : "text-text-faint hover:bg-[#123a2a]/50"}`}>
               <span>{row.title}</span><span title={row.receiving ? "Recibiendo video" : "Sin señal"} className={`h-2 w-2 shrink-0 rounded-full ${row.receiving ? "bg-accent" : "bg-warning"}`} />
             </button>)}
           </div>
@@ -321,7 +327,7 @@ export function EdgeLiveViewer() {
               <button className={button} onClick={() => setGoLive(value => value + 1)}>Volver al directo</button>
             </div>
             <div className={`grid gap-3 ${all && (cameras?.length ?? 0) > 1 ? "lg:grid-cols-2" : ""}`}>
-              {(all ? cameras : camera ? [camera] : [])?.map(row => <LiveCamera key={row.key} camera={row} ready={ready} goLive={goLive} />)}
+              {(all ? cameras : camera ? [camera] : [])?.map(row => <LiveCamera key={row.key} camera={row} ready={ready} goLive={goLive} showBoxes={view.boxes} onBoxes={boxes => changeView({ boxes })} />)}
             </div>
           </> : camera && <History key={camera.key} camera={camera} onExpired={expired} />}
         </div>

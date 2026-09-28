@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { containedVideo } from "@/lib/live-detections";
 import { COLOR, TYPE } from "@/lib/edge-replay";
 import { historyFrameAt, historyTime, type HistoryFrame, type HistoryItem, type Playback } from "@/lib/history-detections";
@@ -8,16 +8,17 @@ import { historyFrameAt, historyTime, type HistoryFrame, type HistoryItem, type 
 type Segment = { id: string; started: number; ended: number; url: string; state: string };
 const button = "cursor-pointer rounded-lg border border-[var(--border)] px-3 py-2 text-xs hover:border-accent disabled:opacity-40";
 
-export function HistoryPlayer({ playback, item, onClose, onExpired, onReview }: {
+export function HistoryPlayer({ playback, item, onClose, onExpired, onReview, boxes, onBoxes, assistant }: {
   playback: Playback; item?: HistoryItem; onClose: () => void; onExpired: () => void;
   onReview: (uid: string, decision: string) => Promise<void>;
+  boxes: boolean; onBoxes: (boxes: boolean) => void; assistant?: ReactNode;
 }) {
   const dialog = useRef<HTMLDialogElement>(null), closeButton = useRef<HTMLButtonElement>(null);
   const video = useRef<HTMLVideoElement>(null), canvas = useRef<HTMLCanvasElement>(null), caption = useRef<HTMLSpanElement>(null);
   const [segments, setSegments] = useState<Segment[]>([]), [segment, setSegment] = useState<Segment | null>(null);
   const [initial, setInitial] = useState(playback.at - 4), [error, setError] = useState("");
   const [frames, setFrames] = useState<HistoryFrame[]>([]), [focus, setFocus] = useState<{ local_id: number; session: string } | null>(null);
-  const [boxes, setBoxes] = useState(true), [position, setPosition] = useState(playback.at), [reviewing, setReviewing] = useState(false);
+  const [position, setPosition] = useState(playback.at), [reviewing, setReviewing] = useState(false);
   const [needsPlay, setNeedsPlay] = useState(false);
   useEffect(() => {
     const element = dialog.current;
@@ -135,7 +136,7 @@ export function HistoryPlayer({ playback, item, onClose, onExpired, onReview }: 
   };
   return <dialog ref={dialog} aria-label="Video del resultado" onCancel={event => { event.preventDefault(); onClose(); }}
     className="fixed inset-0 m-auto max-h-[calc(100dvh_-_1.5rem)] w-[calc(100%_-_1.5rem)] max-w-5xl overflow-y-auto overscroll-contain rounded-xl border border-accent/40 bg-[#08130f] p-0 text-text shadow-2xl backdrop:bg-black/75">
-    <div className="sticky top-0 z-10 flex flex-wrap items-center justify-between gap-2 bg-[#08130f] p-3"><div><p className="text-sm text-accent">{item?.title ?? playback.camera} · grabación</p><p className="mt-1 text-xs text-text-faint">{historyTime(position)} · Honduras · hora de recepción</p></div><div className="flex gap-2"><button className={button} aria-pressed={boxes} onClick={() => setBoxes(!boxes)}>{boxes ? "Ocultar cajas" : "Mostrar cajas"}</button><button ref={closeButton} className={button} onClick={onClose}>Cerrar video</button></div></div>
+    <div className="sticky top-0 z-10 flex flex-wrap items-center justify-between gap-2 bg-[#08130f] p-3"><div><p className="text-sm text-accent">{item?.title ?? playback.camera} · grabación</p><p className="mt-1 text-xs text-text-faint">{historyTime(position)} · Honduras · hora de recepción</p></div><div className="flex gap-2"><button className={button} aria-pressed={boxes} onClick={() => onBoxes(!boxes)}>{boxes ? "Ocultar cajas" : "Mostrar cajas"}</button><button ref={closeButton} className={button} onClick={onClose}>Cerrar video</button></div></div>
     <div className="p-3 pt-0">
     {error && <p role="status" className="mb-3 text-sm text-warning">{error}</p>}
     {!segment && !error && <p role="status" className="p-8 text-sm text-text-faint">Abriendo video…</p>}
@@ -149,6 +150,7 @@ export function HistoryPlayer({ playback, item, onClose, onExpired, onReview }: 
       <span ref={caption} className="pointer-events-none absolute bottom-12 left-2 rounded bg-black/75 px-2 py-1 font-mono text-[10px] text-white" />
     </div>}
     {needsPlay && !error && <button className={`${button} mt-3 text-accent`} onClick={play}>Reproducir video</button>}
+    {assistant && <div className="sticky bottom-0 mt-3 border-t border-[var(--border)] bg-[#08130f] py-3" aria-label="Asistente del video">{assistant}</div>}
     {item?.kind && <div className="mt-3 flex flex-wrap items-center gap-2 text-xs"><span className="mr-auto text-text-faint">{item.kind === "uturn" ? "Posible vuelta en U" : "Posible cruce en rojo"} · {item.review === "confirmed" ? "Confirmada en revisión" : item.review === "dismissed" ? "Descartada en revisión" : "Pendiente de revisión"}</span><button disabled={reviewing} className={button} onClick={() => void review("confirmed")}>Confirmar incidencia</button><button disabled={reviewing} className={button} onClick={() => void review("dismissed")}>Descartar</button><button disabled={reviewing} className={button} onClick={() => void review("candidate")}>Dejar pendiente</button>{item.clip_url && <a href={item.clip_url} download className={button}>Descargar evidencia</a>}</div>}
     </div>
   </dialog>;
