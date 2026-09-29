@@ -4,16 +4,25 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { historyTime, type Coverage } from "@/lib/history-detections";
 import { loadTrafficSummary, trafficHourLabel, trafficPlan, type TrafficCache, type TrafficCount } from "@/lib/traffic-summary";
 
-export function EdgeTrafficChart({ camera, title, run, onExpired }: {
-  camera: string; title: string; run?: Coverage["runs"][number]; onExpired: () => void;
+export function EdgeTrafficChart({ camera, title, run, onExpired, defer = false }: {
+  camera: string; title: string; run?: Coverage["runs"][number]; onExpired: () => void; defer?: boolean;
 }) {
   const plan = useMemo(() => trafficPlan(run, camera), [run, camera]);
   const key = plan ? `${plan.runId}:${camera}:${plan.start}:${plan.end}` : "";
   const [loaded, setLoaded] = useState<{ key: string; rows: TrafficCount[] } | null>(null);
   const [attempt, setAttempt] = useState(0);
+  const [waitedForVideo, setWaitedForVideo] = useState(false);
+  const canLoad = !defer || waitedForVideo;
   const cache = useRef<TrafficCache>(new Map());
   useEffect(() => {
-    if (!key) return;
+    if (!defer || waitedForVideo) return;
+    // Give the first video frame priority over the summary's many requests.
+    // A slow camera must not hold the chart indefinitely.
+    const timer = setTimeout(() => setWaitedForVideo(true), 5000);
+    return () => clearTimeout(timer);
+  }, [defer, waitedForVideo]);
+  useEffect(() => {
+    if (!key || !canLoad) return;
     const controller = new AbortController();
     const currentPlan = trafficPlan(run, camera);
     if (!currentPlan) return;
@@ -28,7 +37,7 @@ export function EdgeTrafficChart({ camera, title, run, onExpired }: {
     // Polling replaces the coverage object; only a changed observation window
     // needs another query. The request cache also retains completed hours.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key, attempt, onExpired]);
+  }, [key, attempt, onExpired, canLoad]);
   const rows = loaded?.key === key ? loaded.rows : null;
   const partial = rows?.some(row => row.vehicles === null || row.incidents === null);
   const available = rows?.some(row => row.vehicles !== null || row.incidents !== null);

@@ -18,6 +18,22 @@ select a tool, and returns text plus local TTS audio. Reply audio attempts to
 play automatically and keeps native playback controls when browser policy
 blocks autoplay. Voice can be disabled independently of text queries.
 
+Recording opens a fullscreen native dialog with a microphone, elapsed time and
+waveform driven by the captured audio stream through a Web Audio analyser.
+Cancel/Escape discards the audio and stops the tracks, including permission
+requests that resolve after cancellation. Sending, capture failure and unmounting
+also release the microphone. The existing 59-second limit still sends the audio
+automatically; the dialog explains this before the limit is reached.
+
+While a job runs, the results panel shows its actual backend phase and a small
+animated activity indicator. Decorative phrases rotate every three seconds within
+that phase; they do not simulate completed work or estimate a percentage. On phones
+the indicator uses a compact row. Reduced-motion preferences disable decorative
+animation, and changing phrases are kept out of screen-reader announcements.
+Video loading uses the same visual language inside the player, with distinct
+connection, buffering and reconnection labels. Script failure and autoplay blocking
+offer explicit recovery actions. Loading overlays preserve the video element.
+
 API requests use the existing same-origin `/edge/api` and `/edge/media`
 rewrites. Backend sessions protect every route; POST requests also require the
 existing CSRF token and exact Origin. Job status and audio are scoped to the
@@ -89,10 +105,18 @@ and incident endpoints with at most two concurrent requests and an in-memory
 cache; paginated item counts are never used as totals. Vehicle counts are
 appearances, and the second series contains pending candidate incidents. Failed
 counts remain unknown and can be retried. No new backend route is required.
+At initial load, chart requests wait for the first live video frame, with a
+five-second fallback for cameras that cannot start. Stream quality and the existing
+playback reserve are unchanged; a production startup-time improvement has not yet
+been measured.
 
 `tests/edge-layout.browser.mjs` checks desktop/mobile sizing, camera selection,
 map continuity and independent result scrolling with browser-isolated API
 responses and an `EDGE_TEST_VIDEO` local MP4. It does not access production APIs.
+`tests/edge-feedback.browser.mjs` uses the same isolated local app and MP4 with
+synthetic microphone audio. It checks voice activity, cancellation/permission races,
+track cleanup, phase changes, video continuity, mobile sizing, reduced motion,
+chart request ordering and player-script failure without contacting production.
 
 Next-result navigation loads the following page when necessary and reports the end
 of the list. Relative seeks preserve pause across archive segments and wait for the

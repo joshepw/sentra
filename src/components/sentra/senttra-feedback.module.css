@@ -1,0 +1,84 @@
+.orb { position: relative; width: 100%; height: 100%; color: var(--accent); isolation: isolate; }
+.orbDrawing { position: relative; width: 100%; height: 100%; overflow: visible; }
+.aura { position: absolute; inset: 15%; border-radius: 50%; background: radial-gradient(circle, #3dd68c30, #3dd68c08 50%, transparent 72%); filter: blur(5px); animation: breathe 3.6s ease-in-out infinite; }
+.orbit { transform-origin: 60px 60px; animation: orbit 5s linear infinite; }
+.innerOrbit { transform-origin: 60px 60px; animation: orbit 16s linear infinite reverse; }
+.orbIcon { position: absolute; inset: 0; display: grid; place-items: center; color: #c7ffe4; }
+.listeningOrb .aura { animation: none; transform: scale(calc(.85 + var(--voice-energy, 0) * .7)); opacity: calc(.45 + var(--voice-energy, 0) * .55); }
+.listeningOrb .orbDrawing { transform: scale(calc(1 + var(--voice-energy, 0) * .05)); }
+.listeningOrb .orbit { animation-duration: 12s; }
+.progress { display: flex; align-items: center; gap: 12px; position: relative; overflow: hidden; padding: 8px; border: 1px solid #3dd68c30; border-radius: 12px; background: radial-gradient(ellipse at top left, #174c3633, transparent 75%), #0a1b14; }
+.progressVisual { width: 40px; height: 40px; flex: 0 0 auto; }
+.progressCopy { min-width: 0; flex: 1; }
+.eyebrow { display: none; color: var(--text-muted); font-family: var(--font-ibm-plex-mono), monospace; font-size: 8px; letter-spacing: .12em; text-transform: uppercase; }
+.progressTitle { color: #d8fbe9; font-family: var(--font-archivo), sans-serif; font-size: 14px; line-height: 1.3; }
+.changingWord { display: inline-block; animation: word-in .32s ease-out both; }
+.progressDetail { margin-top: 4px; color: var(--text-muted); font-size: 10px; line-height: 1.4; }
+.progressMeta { display: none; align-items: center; gap: 6px; margin-top: 14px; color: var(--text-muted); font-size: 10px; }
+.liveDot { width: 5px; height: 5px; flex-shrink: 0; border-radius: 50%; background: var(--accent); box-shadow: 0 0 12px #3dd68c66; }
+.elapsed { margin-left: auto; font-family: var(--font-ibm-plex-mono), monospace; font-variant-numeric: tabular-nums; }
+.videoLoading { position: absolute; inset: 0; z-index: 10; display: grid; place-items: center; overflow: hidden; background: radial-gradient(ellipse at 50% 45%, #123728, #06100d 75%); pointer-events: none; }
+.videoGrid { position: absolute; inset: 0; opacity: .3; background-image: linear-gradient(#3dd68c13 1px, transparent 1px), linear-gradient(90deg, #3dd68c13 1px, transparent 1px); background-size: 42px 42px; mask-image: radial-gradient(ellipse, black, transparent 72%); }
+.videoScan { position: absolute; inset: -50% 0 auto; height: 42%; opacity: .32; background: linear-gradient(transparent, #3dd68c10, transparent); animation: scan 5s ease-in-out infinite; }
+.videoLoadingContent { position: relative; display: flex; flex-direction: column; align-items: center; padding: 16px; text-align: center; animation: reveal .3s ease-out both; }
+.videoOrb { width: clamp(48px, 10vh, 88px); height: clamp(48px, 10vh, 88px); }
+.videoLoadingTitle { margin-top: 9px; color: #dcf8ea; font-family: var(--font-archivo), sans-serif; font-size: clamp(12px, 1.2vw, 17px); line-height: 1.3; }
+.videoLoadingDetail { max-width: 260px; margin-top: 6px; color: var(--text-muted); font-size: 10px; line-height: 1.5; }
+.videoCorner { position: absolute; inset: 12px; border: 1px solid #3dd68c18; border-radius: 5px; }
+.recordDialog { position: fixed; inset: 0; width: 100vw; max-width: none; height: 100dvh; max-height: none; margin: 0; border: 0; padding: 24px; color: var(--text); background: radial-gradient(ellipse at 50% 43%, #163c2b80, transparent 55%), #071710ed; overflow-y: auto; overscroll-behavior: contain; }
+.recordDialog::backdrop { background: #020b07a6; backdrop-filter: blur(12px); }
+.recordDialog[open] { display: flex; align-items: center; justify-content: center; }
+.recordBrand { position: absolute; top: max(24px, env(safe-area-inset-top)); left: 24px; display: flex; align-items: center; gap: 10px; color: #b8d8c8; font-family: var(--font-ibm-plex-mono), monospace; font-size: 10px; letter-spacing: .2em; }
+.recordClose { position: absolute; top: max(16px, env(safe-area-inset-top)); right: 20px; display: grid; place-items: center; width: 40px; height: 40px; border: 1px solid #91b6a226; border-radius: 50%; background: #081c1280; color: var(--text-muted); cursor: pointer; }
+.recordClose:hover { color: var(--text); border-color: #3dd68c66; }
+.recordBody { width: min(100%, 520px); padding: 40px 0 24px; display: flex; align-items: center; flex-direction: column; text-align: center; }
+.recordState { display: flex; align-items: center; gap: 8px; color: #d2e9dd; font-family: var(--font-ibm-plex-mono), monospace; font-size: 10px; letter-spacing: .14em; text-transform: uppercase; }
+.recordDot { width: 6px; height: 6px; border-radius: 50%; background: #fb8478; box-shadow: 0 0 14px #f3736355; }
+.recordTitle { margin-top: 15px; font-family: var(--font-archivo), sans-serif; font-size: clamp(30px, 5vw, 48px); font-weight: 500; letter-spacing: -.045em; line-height: 1.15; }
+.recordHint { max-width: 350px; margin-top: 12px; color: #a3c0b0; font-size: 13px; line-height: 1.6; }
+.voiceMeter { width: 100%; display: flex; flex-direction: column; align-items: center; margin-top: 10px; }
+.recordOrb { width: clamp(150px, 26vh, 238px); height: clamp(150px, 26vh, 238px); }
+.wave { display: flex; align-items: center; justify-content: center; gap: 4px; width: min(100%, 350px); height: 62px; overflow: hidden; }
+.waveBar { display: block; width: 3px; height: 54px; border-radius: 8px; background: linear-gradient(#befde0, #3dd68c); transform: scaleY(var(--bar-level, .06)); opacity: calc(.35 + var(--voice-energy, 0) * .65); will-change: transform; }
+.recordTime { margin-top: 5px; color: #d3f5e3; font-family: var(--font-ibm-plex-mono), monospace; font-size: 15px; font-variant-numeric: tabular-nums; letter-spacing: .06em; }
+.recordLimit { color: var(--text-faint); font-size: 11px; }
+.recordActions { display: grid; grid-template-columns: 1fr 1.25fr; gap: 12px; width: min(100%, 340px); margin-top: 28px; }
+.cancelRecording, .sendRecording { display: inline-flex; align-items: center; justify-content: center; gap: 10px; min-height: 48px; padding: 10px 18px; border-radius: 12px; font-size: 13px; cursor: pointer; transition: background .2s, border-color .2s; }
+.cancelRecording { border: 1px solid #abc6b633; background: #07171055; color: #c0d5c8; }
+.cancelRecording:hover { border-color: #abc6b677; background: #17342655; }
+.sendRecording { border: 1px solid #7ef4b9; background: var(--accent); color: #072015; font-weight: 600; box-shadow: 0 0 34px #3dd68c1a; }
+.sendRecording:hover { background: #70e6ad; }
+.sendRecording:disabled { opacity: .4; cursor: default; }
+.recordDialog button:focus-visible { outline: 2px solid #c5ffe2; outline-offset: 5px; }
+.recordPrivacy { margin-top: 18px; color: #769584; font-size: 10px; line-height: 1.5; }
+@keyframes orbit { to { transform: rotate(360deg); } }
+@keyframes breathe { 0%, 100% { opacity: .6; transform: scale(.93); } 50% { opacity: 1; transform: scale(1.1); } }
+@keyframes word-in { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes reveal { from { opacity: 0; } to { opacity: 1; } }
+@keyframes scan { from { transform: translateY(0); } to { transform: translateY(480%); } }
+@media (min-width: 1024px) {
+  .progress { flex-direction: column; align-items: stretch; gap: 4px; padding: 18px; }
+  .progressVisual { width: 100px; height: 100px; margin: 0 auto 6px; }
+  .progressTitle { margin-top: 5px; font-size: 19px; }
+  .progressDetail { font-size: 11px; }
+  .eyebrow { display: block; font-size: 9px; }
+  .progressMeta { display: flex; }
+}
+@media (max-height: 620px) {
+  .recordBody { padding-top: 46px; padding-bottom: 0; }
+  .recordTitle { font-size: 28px; margin-top: 8px; }
+  .recordHint { margin-top: 6px; font-size: 12px; }
+  .recordOrb { width: 130px; height: 130px; }
+  .wave { height: 38px; }
+  .waveBar { height: 34px; }
+  .recordActions { margin-top: 16px; }
+  .recordPrivacy { margin-top: 12px; }
+}
+@media (max-height: 500px) {
+  .recordDialog[open] { align-items: flex-start; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .orbit, .innerOrbit, .aura, .changingWord, .videoScan, .videoLoadingContent { animation: none; }
+  .listeningOrb .orbDrawing, .listeningOrb .aura { transform: none; }
+  .waveBar, .cancelRecording, .sendRecording { transition: none; }
+}
