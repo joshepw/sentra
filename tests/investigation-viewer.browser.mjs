@@ -26,7 +26,6 @@ try {
   await page.goto(origin + '/edge');
   await page.getByRole('link', { name: 'Entrar con Zitadel' }).click();
   await page.getByRole('textbox', { name: 'Consulta de cámaras' }).waitFor();
-  await page.getByRole('combobox', { name: 'Tramo de análisis' }).locator('option').filter({ hasText: /26/ }).waitFor({ state: 'attached' });
   await page.getByRole('checkbox', { name: 'Responder con voz' }).uncheck();
   const idle = () => page.waitForFunction(() => ![...document.querySelectorAll('button')].find(b => b.textContent === 'Grabar voz')?.disabled, null, { timeout: 65000 });
   const send = async text => {
@@ -36,7 +35,7 @@ try {
   };
   const ready = () => page.waitForFunction(() => document.querySelector('[data-result-video]')?.readyState >= 3, null, { timeout: 45000 });
   const results = page.getByRole('complementary', { name: 'Resultados de la consulta' });
-  await send('Mostrame las pailas rojas de este tramo');
+  await send('Mostrame las pailas rojas desde 2026-09-26T19:02:11-06:00 hasta 2026-09-26T21:02:05-06:00');
   assert.equal(await results.locator('article').count(), 24);
   await results.locator('article').nth(23).getByRole('button', { name: 'Ver video', exact: true }).click();
   await send('Siguiente resultado');

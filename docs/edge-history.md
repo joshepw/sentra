@@ -1,9 +1,9 @@
 # Private camera history in Edge
 
 The bottom text/microphone bar searches the edge computer's durable observation
-index. A selected analysis supplies dates for questions such as “pailas rojas
-de este tramo”. Explicit dates, including “ayer”, use Honduras time and remain
-separate from that selection. Results count appearances per camera/tracking
+index. Questions without dates use the live analysis and its latest 24 hours.
+Explicit dates, including “ayer”, use Honduras time and can search older archives
+without inheriting the live analysis filter. Results count appearances per camera/tracking
 session; they do not establish unique physical vehicles.
 
 The edge backend supplies six read-only MCP tools: coverage, current reception,
@@ -50,7 +50,7 @@ history and original recordings preserves all collected data.
 
 ## Conversational viewer prototype
 
-Each question includes the current camera, box visibility, period/filter context
+Each question includes the current camera, box visibility, live analysis/filter context
 and ordered IDs of the visible cards. Numbered references use that list, including
 an empty list, so an older conversation cannot silently reopen an old result.
 Refining a search preserves its existing filters. Conversations are scoped to a
@@ -65,11 +65,34 @@ changed view rejects the action. Existing read-only MCP tools remain available;
 they do not gain filesystem or service-control access.
 
 The result video occupies the main panel, beside a separately scrolling numbered
-list (below it on mobile). Camera, period and search filters stay visible. The
+list (below it on mobile). The camera map and search filters stay visible. The
 composer stays at the bottom and the conversation expands above it. Response audio
 pauses during recording or a new request. Box visibility is shared with the live
 viewer and does not replace the playing video element. Original video and metadata
 paths are unchanged.
+
+The corridor map stays above the video, beside a compact hourly traffic chart.
+On phones, this overview scrolls horizontally; the video and composer keep their
+own space. The live camera card omits the old box/filter/fullscreen toolbar and
+archive/encoding footer. Detection visibility remains part of the shared viewer
+state and voice commands. Map zoom survives camera-status polling.
+Camera selection uses the map or assistant; the standalone camera dropdown and
+live/history buttons are omitted. The header keeps only the sign-out action.
+The period selector and analysis-status row are also omitted. Coverage polling
+selects the live analysis for the chart and new undated searches; it does not
+silently fall back to an archived period. Explicit dated searches remain available
+through the assistant, with their dates shown in the result filters.
+
+The chart uses the selected camera and live analysis, limited to the latest
+24 observed hours for longer analyses. It reads totals from the existing search
+and incident endpoints with at most two concurrent requests and an in-memory
+cache; paginated item counts are never used as totals. Vehicle counts are
+appearances, and the second series contains pending candidate incidents. Failed
+counts remain unknown and can be retried. No new backend route is required.
+
+`tests/edge-layout.browser.mjs` checks desktop/mobile sizing, camera selection,
+map continuity and independent result scrolling with browser-isolated API
+responses and an `EDGE_TEST_VIDEO` local MP4. It does not access production APIs.
 
 Next-result navigation loads the following page when necessary and reports the end
 of the list. Relative seeks preserve pause across archive segments and wait for the

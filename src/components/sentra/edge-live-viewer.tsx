@@ -2,10 +2,9 @@
 
 import Link from "next/link";
 import Script from "next/script";
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { HistoryChat } from "@/components/sentra/history-chat";
 import type { ViewerState, ViewChanges } from "@/lib/viewer-actions";
-import { CorridorMap } from "@/components/sentra/corridor-map";
 import { SentraLogoMark, SentraWordmark } from "@/components/sentra/ui";
 import { LiveDetectionOverlay, type DetectionStatus } from "@/components/sentra/live-detection-overlay";
 import { fragmentName, type VideoFragment } from "@/lib/live-detections";
@@ -53,13 +52,10 @@ const timeText = (seconds: number, date = false) => new Intl.DateTimeFormat("es-
   hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: true,
 }).format(new Date(seconds * 1000));
 const inputTime = (seconds: number) => new Date((seconds - 6 * 3600) * 1000).toISOString().slice(0, 16);
-const Map = memo(CorridorMap);
 
-function LiveCamera({ camera, ready, goLive, showBoxes, onBoxes }: { camera: Camera; ready: boolean; goLive: number; showBoxes: boolean; onBoxes: (boxes: boolean) => void }) {
+function LiveCamera({ camera, ready, goLive, showBoxes, fit }: { camera: Camera; ready: boolean; goLive: number; showBoxes: boolean; fit: boolean }) {
   const video = useRef<HTMLVideoElement>(null);
-  const stage = useRef<HTMLDivElement>(null);
   const fragments = useRef<VideoFragment[]>([]);
-  const [filter, setFilter] = useState<"all" | "vehicles" | "people">("all");
   const [status, setStatus] = useState("Conectando…");
   useEffect(() => {
     const element = video.current;
@@ -141,36 +137,16 @@ function LiveCamera({ camera, ready, goLive, showBoxes, onBoxes }: { camera: Cam
       void element.play().catch(() => {});
     }
   }, [goLive]);
-  return <article className={`${panel} overflow-hidden`} data-live-camera={camera.key}>
-    <div className="flex items-center justify-between gap-2 px-3 py-2 font-mono text-xs">
+  return <article className={`${panel} overflow-hidden ${fit ? "flex h-full min-h-0 flex-col" : ""}`} data-live-camera={camera.key}>
+    <div className="flex shrink-0 items-center justify-between gap-2 px-3 py-2 font-mono text-xs">
       <h3 className="truncate text-text">{camera.title}</h3>
       <span className={camera.receiving ? "text-accent" : "text-warning"}>{camera.receiving ? status : "Sin señal"}</span>
     </div>
-    <div ref={stage} className="relative aspect-video bg-black [&:fullscreen]:h-screen [&:fullscreen]:w-screen">
+    <div className={`relative bg-black ${fit ? "min-h-0 flex-1" : "aspect-video"}`}>
       <video ref={video} data-live-video={camera.key} muted autoPlay playsInline controls controlsList="nofullscreen" className="h-full w-full object-contain" />
       {camera.detections && <LiveDetectionOverlay camera={camera.key} video={video} fragments={fragments}
-        enabled={showBoxes} receiving={camera.receiving} filter={filter} />}
+        enabled={showBoxes} receiving={camera.receiving} filter="all" />}
       {!camera.receiving && <div className="absolute inset-0 grid place-items-center bg-black/90 px-4 text-center text-sm text-text-faint">{camera.availability_note || "La cámara no está enviando video."}</div>}
-    </div>
-    <div className="flex flex-wrap items-center gap-2 border-t border-[var(--border)] px-3 py-2 font-mono text-[10px] text-text-faint">
-      {camera.detections && <>
-        <label className="flex cursor-pointer items-center gap-2 py-1 text-text">
-          <input type="checkbox" checked={showBoxes} onChange={event => onBoxes(event.target.checked)} className="accent-[#57f1aa]" />
-          Mostrar cajas
-        </label>
-        <select aria-label={`Filtrar detecciones de ${camera.title}`} value={filter} onChange={event => setFilter(event.target.value as typeof filter)}
-          className="min-w-0 rounded border border-[var(--border)] bg-bg-input px-2 py-1 text-text" disabled={!showBoxes}>
-          <option value="all">Todos los objetos</option><option value="vehicles">Vehículos</option><option value="people">Personas</option>
-        </select>
-      </>}
-      <button type="button" className="ml-auto cursor-pointer rounded border border-[var(--border)] px-2 py-1 text-text hover:border-accent"
-        aria-label={`Ampliar ${camera.title}`} onClick={() => { void stage.current?.requestFullscreen?.().catch(() => {}); }}>
-        Pantalla completa
-      </button>
-    </div>
-    <div className="flex justify-between gap-3 px-3 py-2 font-mono text-[10px] text-text-faint">
-      <span>{camera.archive?.segments ?? 0} segmentos guardados{camera.archive?.problem_segments ? ` · ${camera.archive.problem_segments} con incidencias en el archivo` : ""}</span>
-      <span>{camera.encoding?.mode === "compressed" ? `Comprimido · ${(camera.encoding.bitrate_kbps ?? 1000) / 1000} Mbps` : camera.encoding?.mode === "original" ? "Video original" : "Sin transmisión"}</span>
     </div>
   </article>;
 }
@@ -290,7 +266,6 @@ export function EdgeLiveViewer() {
   }, [expired]);
   const cameras = state?.cameras;
   const selected = Math.max(0, cameras?.findIndex(camera => camera.key === selectedKey) ?? 0);
-  const mapCameras = useMemo(() => cameras?.map(camera => ({ id: camera.key, nombre: camera.title, n_giro: 0, n_rojo: 0 })) ?? [], [cameras]);
   const logout = async () => {
     try {
       const response = await fetch("/edge/auth/logout", { method: "POST", headers: { "X-CSRF-Token": state?.user.csrf ?? "" } });
@@ -309,21 +284,20 @@ export function EdgeLiveViewer() {
     <Script src="/senttra/hls.min.js" strategy="afterInteractive" onReady={() => setReady(true)} />
     <header className="z-40 flex shrink-0 items-center justify-between gap-3 border-b border-[var(--border)] bg-[#081411] px-3 py-3 sm:px-5">
       <Link href="/" className="flex items-center gap-2"><SentraLogoMark size={24} /><SentraWordmark /><span className="font-mono text-[10px] uppercase tracking-widest text-accent">Edge</span></Link>
-      <nav className="flex items-center gap-3 text-xs"><Link href="/edge/replay" className="hidden text-text-faint hover:text-accent sm:block">Pruebas de IA</Link><span className="hidden text-text-faint sm:block">{cameras ? `${cameras.filter(row => row.receiving).length}/${cameras.length} con señal` : "Conectando…"}</span><button className="cursor-pointer text-text-faint hover:text-accent" onClick={logout}>Salir</button></nav>
+      <button type="button" className="cursor-pointer text-xs text-text-faint hover:text-accent" onClick={logout}>Salir</button>
     </header>
     {error && <p role="alert" className="shrink-0 px-3 py-2 text-xs text-warning">{error}</p>}
     {state?.storage.accepting === false && <p role="alert" className="shrink-0 px-3 py-2 text-xs text-warning">La grabación está pausada para conservar el espacio libre del disco.</p>}
-    {state ? <HistoryChat csrf={state.user.csrf} onExpired={expired} viewer={view} onView={changeView} cameras={state.cameras}
-      CameraMap={({ onSelect }) => <Map cams={mapCameras} sel={selected} onPick={index => { const key = cameras?.[index]?.key; if (key) onSelect(key); }} admin={false} api="" token="" loadSavedLayout={false} />}>
-      {mode === "live" ? <>
-        <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-          <div className="flex gap-2"><button className={button} aria-pressed={all} onClick={() => setAll(true)}>Todas</button><button className={button} aria-pressed={!all} onClick={() => setAll(false)}>Cámara seleccionada</button></div>
+    {state ? <HistoryChat csrf={state.user.csrf} onExpired={expired} viewer={view} onView={changeView} cameras={state.cameras}>
+      {mode === "live" ? <div className="flex h-full min-h-0 flex-col">
+        <div className="mb-2 flex shrink-0 flex-wrap items-center justify-between gap-2">
+          <div className="flex gap-2"><button className={button} aria-pressed={all} onClick={() => setAll(true)}>Todas</button><button className={button} aria-label="Cámara seleccionada" aria-pressed={!all} onClick={() => setAll(false)}><span className="sm:hidden">Una cámara</span><span className="hidden sm:inline">Cámara seleccionada</span></button></div>
           <button className={button} onClick={() => setGoLive(value => value + 1)}>Volver al directo</button>
         </div>
-        <div className={`grid gap-3 ${all && (cameras?.length ?? 0) > 1 ? "lg:grid-cols-2" : ""}`}>
-          {(all ? cameras : camera ? [camera] : [])?.map(row => <LiveCamera key={row.key} camera={row} ready={ready} goLive={goLive} showBoxes={view.boxes} onBoxes={boxes => changeView({ boxes })} />)}
+        <div className={`grid min-h-0 flex-1 gap-3 ${all ? "auto-rows-max overflow-y-auto lg:grid-cols-2" : "grid-rows-1"}`}>
+          {(all ? cameras : camera ? [camera] : [])?.map(row => <LiveCamera key={row.key} camera={row} ready={ready} goLive={goLive} showBoxes={view.boxes} fit={!all} />)}
         </div>
-      </> : camera && <History key={camera.key} camera={camera} onExpired={expired} />}
+      </div> : camera && <History key={camera.key} camera={camera} onExpired={expired} />}
     </HistoryChat> : <p className="p-5 text-sm text-text-faint">Conectando con Senttra…</p>}
   </main>;
 }

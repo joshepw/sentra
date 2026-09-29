@@ -17,10 +17,11 @@ function facing(cx: number, cy: number, bearing: number, len = 26) {
   return { cone, tip: [cx + len * Math.cos(a), cy + len * Math.sin(a)] as const };
 }
 
-export function CorridorMap({ cams, sel, onPick, admin, api, token, loadSavedLayout = true }: {
+export function CorridorMap({ cams, sel, onPick, admin, api, token, loadSavedLayout = true, compact = false }: {
   cams: MapCam[]; sel: number; onPick: (i: number) => void;
   admin: boolean; api: string; token: string;
   loadSavedLayout?: boolean;
+  compact?: boolean;
 }) {
   const svgRef = useRef<SVGSVGElement>(null);
   const gRef = useRef<SVGGElement>(null);
@@ -47,6 +48,9 @@ export function CorridorMap({ cams, sel, onPick, admin, api, token, loadSavedLay
   }, [api, token, loadSavedLayout]);
 
   const pin = (id: string) => layout[id] ?? MAP.camDefaults[id] ?? DEFAULT_PIN;
+  const cameraYs = Object.values(layout).map(point => point.y * VH);
+  const mapTop = compact ? Math.max(0, Math.min(...cameraYs) - 35) : 0;
+  const mapHeight = compact ? Math.min(VH, Math.max(...cameraYs) + 35) - mapTop : VH;
 
   // coords locales del grupo transformado (= coords viewBox donde viven los pines), para arrastrar pines
   const toUser = useCallback((clientX: number, clientY: number) => {
@@ -140,10 +144,10 @@ export function CorridorMap({ cams, sel, onPick, admin, api, token, loadSavedLay
   };
 
   return (
-    <div className="mb-4 overflow-hidden rounded-2xl border border-[var(--border-strong)] bg-bg-panel">
-      <div className="flex items-start justify-between gap-2 border-b border-[var(--border)] px-5 py-4">
-        <div className="font-mono text-[11px] font-semibold uppercase tracking-[0.14em] text-text-muted">
-          Corredor 1ª Calle · Bulevar Morazán <span className="text-text-faint">· San Pedro Sula</span>
+    <div className={`overflow-hidden border border-[var(--border-strong)] bg-bg-panel ${compact ? "flex h-full min-h-0 flex-col rounded-xl" : "mb-4 rounded-2xl"}`}>
+      <div className={`flex shrink-0 items-start justify-between gap-2 border-b border-[var(--border)] ${compact ? "px-3 py-2" : "px-5 py-4"}`}>
+        <div className={`min-w-0 font-mono font-semibold uppercase tracking-[0.14em] text-text-muted ${compact ? "truncate text-[9px]" : "text-[11px]"}`}>
+          Corredor 1ª Calle · Bulevar Morazán <span className={compact ? "hidden xl:inline text-text-faint" : "text-text-faint"}>· San Pedro Sula</span>
         </div>
         {admin ? (
           <div className="flex items-center gap-2">
@@ -156,12 +160,12 @@ export function CorridorMap({ cams, sel, onPick, admin, api, token, loadSavedLay
             </button>
           </div>
         ) : (
-          <div className="text-right font-mono text-[10px] tracking-[0.1em] text-text-faint"><span className="text-accent">{cams.length}</span> cámaras</div>
+          <div className="shrink-0 text-right font-mono text-[10px] tracking-[0.1em] text-text-faint"><span className="text-accent">{cams.length}</span> cámaras</div>
         )}
       </div>
 
-      <div className="relative bg-[#081613]">
-        <svg ref={svgRef} viewBox={`0 0 ${VW} ${VH}`} className={`block h-auto w-full select-none ${panning ? "cursor-grabbing" : "cursor-grab"}`}
+      <div className={`relative bg-[#081613] ${compact ? "min-h-0 flex-1" : ""}`}>
+        <svg ref={svgRef} viewBox={`0 ${mapTop} ${VW} ${mapHeight}`} aria-label="Mapa de cámaras del corredor" className={`block w-full select-none ${compact ? "h-full" : "h-auto"} ${panning ? "cursor-grabbing" : "cursor-grab"}`}
           style={{ touchAction: "none" }} onPointerDown={startPan} onPointerMove={onMove} onPointerUp={endDrag} onPointerLeave={endDrag}>
           <defs>
             <filter id="corrGlow" x="-5%" y="-60%" width="110%" height="220%">
@@ -227,25 +231,25 @@ export function CorridorMap({ cams, sel, onPick, admin, api, token, loadSavedLay
         </svg>
 
         {/* controles de zoom / encuadre */}
-        <div className="absolute bottom-3 right-3 flex flex-col gap-1.5">
+        <div className={`absolute flex ${compact ? "bottom-1 right-2 gap-1" : "bottom-3 right-3 flex-col gap-1.5"}`}>
           {([["+", () => zoomAt(VW / 2, VH / 2, 1.4)], ["−", () => zoomAt(VW / 2, VH / 2, 1 / 1.4)]] as const).map(([lbl, fn]) => (
             <button key={lbl} onClick={fn} aria-label={lbl === "+" ? "acercar" : "alejar"}
-              className="grid size-8 place-items-center rounded-lg border border-[var(--border-strong)] bg-[rgba(8,20,17,0.8)] font-mono text-base text-text-muted backdrop-blur-sm transition-colors hover:text-accent">{lbl}</button>
+              className={`grid ${compact ? "size-6" : "size-8"} place-items-center rounded-lg border border-[var(--border-strong)] bg-[rgba(8,20,17,0.8)] font-mono text-base text-text-muted backdrop-blur-sm transition-colors hover:text-accent`}>{lbl}</button>
           ))}
           {(view.k !== 1 || view.tx !== 0 || view.ty !== 0) && (
             <button onClick={resetView} aria-label="restablecer encuadre"
-              className="grid size-8 place-items-center rounded-lg border border-[var(--border-strong)] bg-[rgba(8,20,17,0.8)] font-mono text-[13px] text-text-muted backdrop-blur-sm transition-colors hover:text-accent">⟲</button>
+              className={`grid ${compact ? "size-6" : "size-8"} place-items-center rounded-lg border border-[var(--border-strong)] bg-[rgba(8,20,17,0.8)] font-mono text-[13px] text-text-muted backdrop-blur-sm transition-colors hover:text-accent`}>⟲</button>
           )}
         </div>
-        {panning || view.k > 1 ? null : (
+        {compact || panning || view.k > 1 ? null : (
           <div className="pointer-events-none absolute bottom-3 left-3 font-mono text-[9px] uppercase tracking-[0.14em] text-text-faint">arrastrá para mover · rueda para zoom</div>
         )}
       </div>
 
-      <div className="flex items-center gap-2 border-t border-[var(--border)] px-5 py-3.5">
-        <span className="size-2 rounded-full bg-accent shadow-[0_0_0_3px_rgba(61,214,140,0.18)]" />
-        <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-text-faint">Seleccionada</span>
-        <span className="ml-1 font-display text-[14px] font-bold leading-tight">{cams[sel]?.nombre}</span>
+      <div className={`flex shrink-0 items-center gap-2 border-t border-[var(--border)] ${compact ? "px-3 py-1.5" : "px-5 py-3.5"}`}>
+        <span className="size-2 shrink-0 rounded-full bg-accent shadow-[0_0_0_3px_rgba(61,214,140,0.18)]" />
+        <span className={`font-mono text-[10px] uppercase tracking-[0.14em] text-text-faint ${compact ? "hidden sm:inline" : ""}`}>Seleccionada</span>
+        <span className={`ml-1 truncate font-display font-bold leading-tight ${compact ? "text-[11px]" : "text-[14px]"}`}>{cams[sel]?.nombre}</span>
       </div>
     </div>
   );
