@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { historyFrameAt, historyTime } from '../src/lib/history-detections.ts';
+import { historyFrameAt, historyRange, historyTime } from '../src/lib/history-detections.ts';
 const object={id:2,class_id:2,label:'Auto',score:.9,box:[.1,.2,.3,.4]};
 const frame=(at,extra={})=>({camera:'little',session:'one',captured_at:at,width:1920,height:1080,source_pts:at-100,region_revision:20,objects:[object],...extra});
 test('archive seeks never show future labels and remove boxes across missing observations',()=>{
@@ -35,4 +35,14 @@ test('unusable timestamps do not throw the viewer into its error boundary',()=>{
  for(const value of [undefined,null,'',' ','not-a-date','2026-99-99T25:00:00',NaN,Infinity,1e30]){
   assert.equal(historyTime(value),'Hora no disponible');
  }
+});
+test('compact ranges preserve Honduras dates across midnight and tolerate missing bounds',()=>{
+ const local=historyRange('2026-09-26T19:02:11','2026-09-26T21:02:05');
+ assert.equal(local,historyRange(1790470931,1790478125));
+ assert.match(local,/19:02–21:02 · HN/);
+ assert.match(historyRange('2026-09-27T05:00:00Z','2026-09-27T07:00:00Z'),/26.+23:00–27.+01:00 · HN/);
+ assert.match(historyRange('2025-12-31T23:00:00','2026-01-01T01:00:00'),/2025.+2026/);
+ assert.match(historyRange('2026-09-26',undefined),/^Desde/);
+ assert.match(historyRange(undefined,'2026-09-26'),/^Hasta/);
+ assert.equal(historyRange('not-a-date',Infinity),'');
 });

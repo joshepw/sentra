@@ -4,9 +4,9 @@ import assert from 'node:assert/strict';
 
 const require = createRequire(import.meta.url);
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE ?? '/home/paal/tmp-codex-test/worktrees/wheel-dev-guide/node_modules/playwright');
-const origin = 'http://127.0.0.1:8773';
-const output = 'test-artifacts/edge-feedback';
-const videoPath = 'test-artifacts/edge-layout/fixture.mp4';
+const origin = process.env.EDGE_TEST_ORIGIN ?? 'http://127.0.0.1:8773';
+const output = process.env.EDGE_EVIDENCE_DIR ?? 'test-artifacts/edge-feedback';
+const videoPath = process.env.EDGE_TEST_VIDEO ?? 'test-artifacts/edge-layout/fixture.mp4';
 await mkdir(output, { recursive: true });
 const started = Date.parse('2026-09-26T00:00:00-06:00') / 1000;
 const cameras = [{ key: 'little', title: 'Little Caesars' }, { key: 'little1', title: 'Little Caesars 1' }];

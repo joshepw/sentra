@@ -13,7 +13,7 @@ try{
  const page=await context.newPage();page.on('pageerror',error=>evidence.errors.push(error.message));
  await page.goto(origin+'/edge');await page.getByRole('link',{name:'Entrar con Zitadel'}).tap();
  await page.getByRole('textbox',{name:'Consulta de cámaras'}).waitFor();
- await page.getByRole('checkbox',{name:'Responder con voz'}).uncheck();
+ await page.getByRole('button',{name:'Silenciar voz',exact:true}).click();
  await page.getByRole('button',{name:'Pailas rojas',exact:true}).tap();
  const results=page.locator('[aria-label="Resultados de la consulta"]');
  const buttons=results.getByRole('button',{name:'Ver video',exact:true});
