@@ -2,15 +2,18 @@
 
 /* eslint-disable @next/next/no-img-element -- Private thumbnails require browser session cookies. */
 
-import { useCallback, useEffect, useRef, useState, type ReactNode, type ComponentType } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { flushSync } from "react-dom";
 import { HistoryPlayer, type PlayerControl } from "@/components/sentra/history-player";
+import { EdgeTrafficChart } from "@/components/sentra/edge-traffic-chart";
+import { CorridorMap } from "@/components/sentra/corridor-map";
 import { COLOR, TYPE } from "@/lib/edge-replay";
 import { historyTime, type Coverage, type HistoryItem, type Playback, type ToolResult } from "@/lib/history-detections";
 import type { ViewerState, ViewerAction, ViewChanges, ActionFailure } from "@/lib/viewer-actions";
 
 type Job = { id: string; status: string; phase: string; transcript?: string; reply?: string; error?: string; voice_error?: string; audio_url?: string; tool?: string; result?: ToolResult; action?: ViewerAction };
 type Message = { id: string; question: string; reply?: string; audio?: string; voiceError?: string };
+const CameraMap = memo(CorridorMap);
 const button = "cursor-pointer rounded-lg border border-[var(--border)] px-3 py-2 text-xs transition-colors hover:border-accent disabled:cursor-default disabled:opacity-40";
 const phases: Record<string, string> = { queued: "Consulta en cola…", transcribing: "Escuchando tu consulta…", planning: "Interpretando la consulta…", querying: "Consultando el historial…", replying: "Preparando la respuesta…", applying: "Actualizando la vista…", voice: "Preparando la voz…" };
 
@@ -21,11 +24,15 @@ function Voice({ source, auto }: { source: string; auto: boolean }) {
   return <div><audio ref={audio} controls preload="none" src={source} className="h-7 w-48 max-w-full" aria-label="Respuesta hablada" />{blocked && <p className="text-[10px] text-text-faint">Tocá reproducir para escuchar.</p>}</div>;
 }
 
-export function HistoryChat({ csrf, onExpired, viewer, onView, cameras, children, CameraMap }: {
+export function HistoryChat({ csrf, onExpired, viewer, onView, cameras, children }: {
   csrf: string; onExpired: () => void; viewer: ViewerState; onView: (changes: ViewChanges) => void;
-  cameras: { key: string; title: string; receiving: boolean }[]; children: ReactNode; CameraMap: ComponentType<{ onSelect: (camera: string) => void }>;
+  cameras: { key: string; title: string; receiving: boolean }[]; children: ReactNode;
 }) {
-  const [coverage, setCoverage] = useState<Coverage>({ runs: [] }), [runId, setRunId] = useState("");
+  const [coverage, setCoverage] = useState<Coverage>({ runs: [] });
+  const liveRun = coverage.runs.find(run => run.kind === "live");
+  // Omitting the run would let the backend choose an older archive by default.
+  const runId = liveRun?.id ?? "live";
+  const mapCameras = useMemo(() => cameras.map(camera => ({ id: camera.key, nombre: camera.title, n_giro: 0, n_rojo: 0 })), [cameras]);
   const [text, setText] = useState(""), [messages, setMessages] = useState<Message[]>([]), [result, setResult] = useState<ToolResult | null>(null);
   const [busy, setBusy] = useState(false), [phase, setPhase] = useState(""), [error, setError] = useState(""), [voice, setVoice] = useState(true);
   const [selection, setSelection] = useState<{ playback: Playback; item?: HistoryItem } | null>(null);
@@ -58,7 +65,7 @@ export function HistoryChat({ csrf, onExpired, viewer, onView, cameras, children
         if (response.status === 401) { onExpired(); return; }
         if (!response.ok) throw new Error("El índice de detecciones aún no está disponible.");
         const value: Coverage = await response.json();
-        if (!controller.signal.aborted) { setCoverage(value); setRunId(previous => previous || value.runs.find(run => run.kind === "archive")?.id || value.runs[0]?.id || ""); }
+        if (!controller.signal.aborted) setCoverage(value);
       } catch (reason) { if (!controller.signal.aborted) setError((reason as Error).message); }
       if (!controller.signal.aborted) timer = setTimeout(load, 15000);
     };
@@ -229,37 +236,23 @@ export function HistoryChat({ csrf, onExpired, viewer, onView, cameras, children
     setResult(previous => previous ? { ...previous, items: previous.items?.map(item => item.uid === uid ? { ...item, review: decision } : item) } : previous);
     setSelection(previous => previous?.item?.uid === uid ? { ...previous, item: { ...previous.item, review: decision } } : previous);
   };
-  const selectedRun = coverage.runs.find(run => run.id === runId);
-  const fraction = selectedRun?.ended && selectedRun.cameras.length ? Math.max(0, Math.min(100, 100 * (Math.min(...selectedRun.cameras.map(camera => camera.last)) - selectedRun.started) / (selectedRun.ended - selectedRun.started))) : 0;
   const selectedIndex = result?.items?.findIndex(item => item.uid === selection?.item?.uid) ?? -1;
   const latest = messages.at(-1);
   const cameraTitle = (key: string) => cameras.find(camera => camera.key === key)?.title ?? key;
   const filters = result?.filters;
-  return <section aria-label="Chat del historial" className="flex min-h-0 flex-1 flex-col">
-    <div className="shrink-0 space-y-2 px-3 py-2 sm:px-5">
-      <div className="flex flex-wrap items-center gap-2">
-        <label className="sr-only" htmlFor="viewer-camera">Cámara visible</label>
-        <select id="viewer-camera" value={viewer.camera} onChange={event => { choose(null); onView({ camera: event.target.value, all: false }); }} className="min-w-0 max-w-[52%] rounded-lg border border-[var(--border)] bg-bg-input px-2 py-2 text-xs text-text">
-          {cameras.map(camera => <option key={camera.key} value={camera.key}>{camera.title}{camera.receiving ? "" : " · sin señal"}</option>)}
-        </select>
-        <div className="flex gap-1" aria-label="Modo de video">{([["live", "En vivo"], ["history", "Historial"]] as const).map(([mode, label]) => <button key={mode} className={`${button} ${!selection && viewer.mode === mode ? "border-accent text-accent" : ""}`} aria-pressed={!selection && viewer.mode === mode} onClick={() => { choose(null); onView({ mode }); }}>{label}</button>)}</div>
-        <details className="relative ml-auto hidden sm:block"><summary className="cursor-pointer text-xs text-text-faint">Mapa</summary><div className="absolute right-0 top-7 z-30 w-80 rounded-xl border border-[var(--border)] bg-bg-page shadow-xl"><CameraMap onSelect={camera => { choose(null); onView({ camera, all: false }); }} /></div></details>
-      </div>
-      <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-text-faint">
-        <label className="flex min-w-0 max-w-full items-center gap-2">Período<select aria-label="Tramo de análisis" className="min-w-0 rounded-md border border-[var(--border)] bg-bg-input px-2 py-1 text-text" value={runId} onChange={event => { localRevision.current++; current.current.runId = event.target.value; current.current.result = null; setRunId(event.target.value); setResult(null); choose(null); }}>
-          {!coverage.runs.length && <option value="">Esperando análisis</option>}{coverage.runs.map(run => <option key={run.id} value={run.id}>{run.title}</option>)}
-        </select></label>
-        {selectedRun && <span>{selectedRun.status === "complete" ? "Análisis completo" : selectedRun.kind === "live" ? "Detecciones del vivo" : `${selectedRun.status === "waiting" ? "Análisis pausado" : selectedRun.status === "failed" || selectedRun.status === "interrupted" ? "Análisis interrumpido" : "Analizando"} · ${fraction.toFixed(1)}%`} · {selectedRun.cameras.length} cámaras</span>}
-      </div>
-      {filters && <div aria-label="Filtros de la búsqueda" className="flex gap-2 overflow-x-auto whitespace-nowrap text-[11px] text-accent">
+  return <section aria-label="Chat del historial" className="flex min-h-0 flex-1 flex-col pt-2">
+      {filters && <div aria-label="Filtros de la búsqueda" className="mb-2 flex shrink-0 gap-2 overflow-x-auto whitespace-nowrap px-3 text-[11px] text-accent sm:px-5">
         <span>{filters.camera ? cameraTitle(String(filters.camera)) : "Todas las cámaras"}</span>
         {filters.type && <span>· {TYPE[String(filters.type)] ?? filters.type}</span>}{filters.color && <span>· {COLOR[String(filters.color)] ?? filters.color}</span>}
         {filters.kind && <span>· {filters.kind === "uturn" ? "Vueltas en U" : "Cruces en rojo"}</span>}
         {filters.review && <span>· {filters.review === "confirmed" ? "Confirmadas" : filters.review === "dismissed" ? "Descartadas" : "Pendientes"}</span>}
         {filters.start && filters.end && <span>· {historyTime(filters.start)} a {historyTime(filters.end)}</span>}
       </div>}
+    <div aria-label="Mapa y tráfico del corredor" className="mb-3 flex h-[clamp(100px,15dvh,128px)] shrink-0 snap-x snap-mandatory gap-3 overflow-x-auto px-3 sm:grid sm:h-[clamp(112px,21dvh,220px)] sm:grid-cols-[minmax(0,1fr)_minmax(240px,32%)] sm:overflow-visible sm:px-5 lg:grid-cols-[minmax(0,1fr)_320px]">
+      <div className="h-full min-h-0 min-w-0 basis-[88%] shrink-0 snap-start" aria-label="Mapa del corredor"><CameraMap cams={mapCameras} sel={Math.max(0, cameras.findIndex(camera => camera.key === viewer.camera))} onPick={index => { choose(null); onView({ camera: cameras[index].key, all: false }); }} admin={false} api="" token="" loadSavedLayout={false} compact /></div>
+      <div className="h-full min-h-0 min-w-0 basis-[88%] shrink-0 snap-start"><EdgeTrafficChart camera={viewer.camera} title={cameraTitle(viewer.camera)} run={liveRun} onExpired={onExpired} /></div>
     </div>
-    <div className="grid min-h-0 flex-1 grid-rows-[minmax(160px,34dvh)_minmax(80px,1fr)] gap-3 px-3 pb-3 sm:px-5 lg:grid-cols-[minmax(0,1fr)_360px] lg:grid-rows-1">
+    <div className="grid min-h-0 flex-1 grid-rows-[minmax(120px,2.2fr)_minmax(64px,1fr)] gap-3 px-3 pb-3 sm:px-5 lg:grid-cols-[minmax(0,1fr)_320px] lg:grid-rows-1">
       <div className="min-h-0 min-w-0" aria-label="Panel de video">
         {selection ? <HistoryPlayer key={`${selection.playback.camera}:${selection.playback.at}:${selection.playback.track_uid ?? selection.playback.incident_uid ?? ""}`} controlRef={player} playback={selection.playback} item={selection.item} onClose={() => choose(null)} onExpired={onExpired} onReview={review} boxes={viewer.boxes} onBoxes={boxes => onView({ boxes })} /> : <div className="h-full min-h-0 overflow-y-auto rounded-xl" data-camera-view>{children}</div>}
       </div>
@@ -269,7 +262,7 @@ export function HistoryChat({ csrf, onExpired, viewer, onView, cameras, children
           {selectedIndex >= 0 && <div className="flex items-center gap-2"><span className="text-xs text-accent">{selectedIndex + 1} / {result?.total ?? result?.items?.length}</span><button className={button} aria-label="Resultado anterior" disabled={busy || paging || selectedIndex === 0} onClick={() => void manualNavigate("previous")}>←</button><button className={button} aria-label="Siguiente resultado" disabled={busy || paging || (selectedIndex === (result?.items?.length ?? 0) - 1 && !result?.next_cursor)} onClick={() => void manualNavigate("next")}>→</button></div>}
         </div>
         <div className="min-h-0 flex-1 space-y-2 overflow-y-auto overscroll-contain p-3" data-result-list>
-          {!result && <div className="space-y-3 py-3 text-sm text-text-faint"><p>Buscá vehículos o incidencias por texto o voz.</p><div className="flex flex-wrap gap-2">{[["Pailas rojas", "Mostrame las pailas rojas de este tramo"], ["Vueltas en U", "Mostrame las vueltas en U de este tramo"], ["Cruces en rojo", "Mostrame los cruces en rojo de este tramo"], ["Cobertura", "Qué cámaras y horas tienen detecciones guardadas"]].map(([label, question]) => <button key={label} className={button} disabled={busy || recording} onClick={() => void send(question)}>{label}</button>)}</div><p className="text-xs leading-relaxed">Después podés decir “abrí el segundo”, “siguiente resultado” o “retrocedé diez segundos”.</p></div>}
+          {!result && <div className="space-y-3 py-3 text-sm text-text-faint"><p>Buscá vehículos o incidencias por texto o voz.</p><div className="flex flex-wrap gap-2">{[["Pailas rojas", "Mostrame las pailas rojas"], ["Vueltas en U", "Mostrame las vueltas en U"], ["Cruces en rojo", "Mostrame los cruces en rojo"], ["Cobertura", "Qué cámaras y horas tienen detecciones guardadas"]].map(([label, question]) => <button key={label} className={button} disabled={busy || recording} onClick={() => void send(question)}>{label}</button>)}</div><p className="text-xs leading-relaxed">Después podés decir “abrí el segundo”, “siguiente resultado” o “retrocedé diez segundos”.</p></div>}
           {result?.coverage && <p className="hidden text-[11px] leading-relaxed text-text-faint lg:block">{result.counting !== "candidate_events" && "Una misma unidad puede aparecer más de una vez. "}{result.coverage.runs.some(run => run.kind === "archive" && run.status !== "complete") ? "Cobertura parcial: solo los momentos analizados." : "Resultados de los momentos analizados."}</p>}
           {(result?.note || result?.reason) && <p className="text-xs leading-relaxed text-warning">{result.note ?? result.reason}</p>}
           {result?.items?.length === 0 && <p className="py-3 text-sm text-text-faint">Sin coincidencias en el historial procesado para esos filtros.</p>}

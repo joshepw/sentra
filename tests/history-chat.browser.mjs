@@ -14,7 +14,7 @@ try {
  await page.goto(origin+'/edge');await page.getByRole('link',{name:'Entrar con Zitadel'}).click();
  await page.waitForURL(origin+'/edge/live');await page.getByRole('textbox',{name:'Consulta de cámaras'}).waitFor();
  const coverage=await (await context.request.get(origin+'/edge/api/history/coverage')).json();assert(coverage.runs.length>0);
- await page.getByRole('button',{name:'Pailas rojas',exact:true}).click();
+ await page.getByLabel('Consulta de cámaras').fill('Mostrame las pailas rojas desde 2026-09-26T19:02:11-06:00 hasta 2026-09-26T21:02:05-06:00');await page.getByRole('button',{name:'Enviar',exact:true}).click();
  await page.getByRole('button',{name:'Ver video',exact:true}).first().waitFor({timeout:90000});
  await page.waitForFunction(()=>{const a=document.querySelector('audio');return a?.readyState>=2&&a.currentTime>0;},null,{timeout:120000});
  const countBefore=await page.locator('article').count();assert(countBefore>0);
@@ -36,7 +36,7 @@ try {
  await page.getByRole('button',{name:'Cerrar video',exact:true}).click();
  await page.getByRole('button',{name:'Otras cámaras',exact:true}).first().click();
  await page.getByText(/Sugerencias de apariencia/).waitFor({timeout:30000});evidence.visualCandidates=true;
- await page.getByLabel('Consulta de cámaras').fill('Mostrame los cruces en rojo de este tramo');await page.getByRole('button',{name:'Enviar',exact:true}).click();await page.locator('[aria-live="polite"]').filter({hasText:/incidencias con esos filtros/}).waitFor({timeout:90000});
+ await page.getByLabel('Consulta de cámaras').fill('Mostrame los cruces en rojo desde 2026-09-26T19:02:11-06:00 hasta 2026-09-26T21:02:05-06:00');await page.getByRole('button',{name:'Enviar',exact:true}).click();await page.locator('[aria-live="polite"]').filter({hasText:/incidencias con esos filtros/}).waitFor({timeout:90000});
  await page.waitForFunction(()=>!document.querySelector('input#history-question')?.disabled&&[...document.querySelectorAll('button')].find(b=>b.textContent==='Grabar voz')?.disabled===false,null,{timeout:120000});
  const events=await (await context.request.get(origin+'/edge/api/history/incidents')).json();
  if(events.items.length){

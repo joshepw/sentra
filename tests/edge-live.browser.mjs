@@ -30,6 +30,30 @@ try {
   await page.goto(origin+'/edge/live');
   await page.getByRole('link',{name:'Entrar con Zitadel'}).click();
   await page.waitForURL(origin+'/edge/live');
+  await page.getByRole('button',{name:'Todas',exact:true}).click();
+  // Modes are controlled through the assistant. Stub its validated action for
+  // this media fixture, without making a model request or changing stored data.
+  const switchMode=async mode=>{
+    const job='f'.repeat(32),receipts=[];
+    const chatUrl='**/edge/api/history/chat',receiptUrl=`**/edge/api/history/chat/${job}/applied`;
+    await page.route(chatUrl,route=>{
+      const request=route.request().postDataJSON();
+      return route.fulfill({json:{id:job,status:'waiting_action',phase:'applying',
+        action:{kind:'view',revision:request.viewer.revision,changes:{mode}}}});
+    });
+    await page.route(receiptUrl,route=>{
+      receipts.push(route.request().postDataJSON());
+      return route.fulfill({json:{id:job,status:'complete',phase:'complete',reply:'Vista actualizada.'}});
+    });
+    try {
+      await page.getByRole('textbox',{name:'Consulta de cámaras'}).fill(mode==='history'?'Mostrá el historial':'Volvé al vivo');
+      await page.getByRole('button',{name:'Enviar',exact:true}).click();
+      await page.waitForFunction(()=>![...document.querySelectorAll('button')].find(button=>button.textContent==='Grabar voz')?.disabled);
+      assert.equal(receipts.at(-1)?.status,'applied');
+    } finally {
+      await page.unroute(chatUrl);await page.unroute(receiptUrl);
+    }
+  };
   const expected=Number(process.env.LIVE_EXPECTED_CAMERAS ?? 2);
   await page.waitForFunction(count=>document.querySelectorAll('video[data-live-video]').length===count,expected);
   await page.waitForFunction(excluded=>[...document.querySelectorAll('video[data-live-video]')].filter(v=>!excluded.includes(v.dataset.liveVideo)).every(v=>v.readyState>=3&&!v.paused&&v.currentTime>1),offline,{timeout:60000});
@@ -40,7 +64,7 @@ try {
   await page.getByRole('button',{name:'Cámara seleccionada',exact:true}).click();
   await page.waitForFunction(()=>document.querySelectorAll('video[data-live-video]').length===1);
   assert.equal((await read())[0].camera,'little1');
-  await page.getByRole('button',{name:'Historial',exact:true}).click();
+  await switchMode('history');
   await page.waitForFunction(()=>{const v=document.querySelector('[data-history-video]');return v?.readyState>=3&&v.currentTime>1;},null,{timeout:30000});
   const history=await page.locator('[data-history-video]').evaluate(v=>({url:v.getAttribute('src'),duration:v.duration,time:v.currentTime}));
   assert(history.duration>30);
@@ -71,7 +95,7 @@ try {
   await page.getByText('Los horarios de estos tramos se superponen. Elegí el siguiente tramo para continuar.',{exact:true}).waitFor({timeout:10000});
   assert((await page.locator('[data-history-video]').getAttribute('src')).includes(earlier.id));
   await page.unroute('**/edge/api/live/archive?*');result.clockOverlapStops=true;
-  await page.getByRole('button',{name:'En vivo',exact:true}).click();
+  await switchMode('live');
   await page.getByRole('button',{name:'Todas',exact:true}).click();
   await page.waitForFunction(count=>[...document.querySelectorAll('video[data-live-video]')].length===count,expected);
   await page.setViewportSize({width:390,height:844});await page.waitForTimeout(500);
