@@ -4,6 +4,7 @@ import Link from "next/link";
 import Script from "next/script";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { HistoryChat } from "@/components/sentra/history-chat";
+import { useAssistantVoice, VoiceMuteButton } from "@/components/sentra/assistant-voice";
 import type { ViewerState, ViewChanges } from "@/lib/viewer-actions";
 import { SentraLogoMark, SentraWordmark } from "@/components/sentra/ui";
 import { LiveDetectionOverlay, type DetectionStatus } from "@/components/sentra/live-detection-overlay";
@@ -261,6 +262,7 @@ export function EdgeLiveViewer() {
   const setAll = (all: boolean) => changeView({ all });
   const [goLive, setGoLive] = useState(0);
   const expired = useCallback(() => { setDenied(true); setState(null); }, []);
+  const voice = useAssistantVoice(expired);
   useEffect(() => {
     const controller = new AbortController(); let timer: ReturnType<typeof setTimeout> | null = null;
     const poll = async () => {
@@ -278,6 +280,7 @@ export function EdgeLiveViewer() {
   const cameras = state?.cameras;
   const selected = Math.max(0, cameras?.findIndex(camera => camera.key === selectedKey) ?? 0);
   const logout = async () => {
+    voice.stop();
     try {
       const response = await fetch("/edge/auth/logout", { method: "POST", headers: { "X-CSRF-Token": state?.user.csrf ?? "" } });
       if (!response.ok && response.status !== 401) throw new Error("No se pudo cerrar la sesión.");
@@ -295,11 +298,11 @@ export function EdgeLiveViewer() {
     <Script src="/senttra/hls.min.js" strategy="afterInteractive" onReady={() => { setPlayerFailed(false); setReady(true); }} onError={() => setPlayerFailed(true)} />
     <header className="z-40 flex shrink-0 items-center justify-between gap-3 border-b border-[var(--border)] bg-[#081411] px-3 py-3 sm:px-5">
       <Link href="/" className="flex items-center gap-2"><SentraLogoMark size={24} /><SentraWordmark /><span className="font-mono text-[10px] uppercase tracking-widest text-accent">Edge</span></Link>
-      <button type="button" className="cursor-pointer text-xs text-text-faint hover:text-accent" onClick={logout}>Salir</button>
+      <div className="flex items-center gap-2"><VoiceMuteButton voice={voice} /><button type="button" className="cursor-pointer text-xs text-text-faint hover:text-accent" onClick={logout}>Salir</button></div>
     </header>
     {error && <p role="alert" className="shrink-0 px-3 py-2 text-xs text-warning">{error}</p>}
     {state?.storage.accepting === false && <p role="alert" className="shrink-0 px-3 py-2 text-xs text-warning">La grabación está pausada para conservar el espacio libre del disco.</p>}
-    {state ? <HistoryChat csrf={state.user.csrf} onExpired={expired} viewer={view} onView={changeView} cameras={state.cameras} deferTraffic={mode === "live" && !!camera?.receiving && !videoPlayable && !playerFailed}>
+    {state ? <HistoryChat csrf={state.user.csrf} onExpired={expired} viewer={view} onView={changeView} cameras={state.cameras} voice={voice} deferTraffic={mode === "live" && !!camera?.receiving && !videoPlayable && !playerFailed}>
       {mode === "live" ? <div className="flex h-full min-h-0 flex-col">
         <div className="mb-2 flex shrink-0 flex-wrap items-center justify-between gap-2">
           <div className="flex gap-2"><button className={button} aria-pressed={all} onClick={() => setAll(true)}>Todas</button><button className={button} aria-label="Cámara seleccionada" aria-pressed={!all} onClick={() => setAll(false)}><span className="sm:hidden">Una cámara</span><span className="hidden sm:inline">Cámara seleccionada</span></button></div>

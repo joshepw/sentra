@@ -74,9 +74,9 @@ function VoiceMeter({ stream }: { stream: MediaStream | null }) {
   </div>;
 }
 
-export function VoiceRecorder({ disabled, onSend, onActivityChange, onError }: {
+export function VoiceRecorder({ disabled, onSend, onActivityChange, onError, onInteraction }: {
   disabled: boolean; onSend: (voice: RecordedVoice) => void;
-  onActivityChange: (active: boolean) => void; onError: (message: string) => void;
+  onActivityChange: (active: boolean) => void; onError: (message: string) => void; onInteraction?: () => void;
 }) {
   const [phase, setPhase] = useState<Phase>("idle"), [seconds, setSeconds] = useState(0);
   const [stream, setStream] = useState<MediaStream | null>(null);
@@ -169,6 +169,7 @@ export function VoiceRecorder({ disabled, onSend, onActivityChange, onError }: {
   const send = () => {
     const current = capture.current;
     if (current?.recorder?.state !== "recording") return;
+    onInteraction?.();
     setPhase("encoding"); current.recorder.stop();
   };
   return <>

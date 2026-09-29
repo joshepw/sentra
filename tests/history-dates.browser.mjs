@@ -11,13 +11,13 @@ const browser = await chromium.launch({ headless: true, executablePath: '/opt/go
 const evidence = { started: new Date().toISOString(), origin, consoleErrors: [], cases: [] };
 const bootstrap = { cameras: [{ key: 'little', title: 'Little Caesars', receiving: false, url: '/edge/media/live/little/index.m3u8' }], user: { name: 'Date fixture', csrf: 'fixture-only' }, storage: {}, transport_ok: false };
 const cases = [
-  { name: 'explicit Honduras date', start: '2026-09-26T19:02:11-06:00', end: '2026-09-26T21:02:05-06:00', time: /7:02:11/ },
-  { name: 'UTC date', start: '2026-09-27T01:02:11Z', end: '2026-09-27T03:02:05Z', time: /7:02:11/ },
-  { name: 'local date without timezone', start: '2026-09-26T19:02:11', end: '2026-09-26T21:02:05', time: /7:02:11/ },
-  { name: 'epoch seconds', start: 1790470931, end: 1790478125, time: /7:02:11/ },
-  { name: 'epoch strings', start: '1790470931', end: '1790478125', time: /7:02:11/ },
-  { name: 'date only', start: '2026-09-26', end: '2026-09-27', time: /12:00:00/ },
-  { name: 'unusable date response', start: 'not-a-date', end: 'not-a-date', time: /Hora no disponible/ },
+  { name: 'explicit Honduras date', start: '2026-09-26T19:02:11-06:00', end: '2026-09-26T21:02:05-06:00', time: /19:02/ },
+  { name: 'UTC date', start: '2026-09-27T01:02:11Z', end: '2026-09-27T03:02:05Z', time: /19:02/ },
+  { name: 'local date without timezone', start: '2026-09-26T19:02:11', end: '2026-09-26T21:02:05', time: /19:02/ },
+  { name: 'epoch seconds', start: 1790470931, end: 1790478125, time: /19:02/ },
+  { name: 'epoch strings', start: '1790470931', end: '1790478125', time: /19:02/ },
+  { name: 'date only', start: '2026-09-26', end: '2026-09-27', time: /00:00/ },
+  { name: 'unusable date response', start: 'not-a-date', end: 'not-a-date', time: /Paila/ },
 ];
 let selected = cases[0];
 try {
@@ -39,7 +39,7 @@ try {
   });
   await page.goto(origin + '/edge');
   await page.getByRole('textbox', { name: 'Consulta de cámaras' }).waitFor();
-  await page.getByRole('checkbox', { name: 'Responder con voz' }).uncheck();
+  await page.getByRole('button', { name: 'Silenciar voz', exact: true }).click();
   for (const row of cases) {
     selected = row;
     await page.getByRole('textbox', { name: 'Consulta de cámaras' }).fill('Pailas rojas de ayer: ' + row.name);
@@ -53,7 +53,7 @@ try {
     }
     await page.getByRole('button', { name: 'Grabar voz', exact: true }).waitFor();
     await page.waitForFunction(() => ![...document.querySelectorAll('button')].find(button => button.textContent === 'Grabar voz')?.disabled);
-    const contextText = await page.getByLabel('Filtros de la búsqueda').innerText();
+    const contextText = await page.locator('[data-result-context]').innerText();
     assert.match(contextText, row.time);
     assert.equal(await page.getByRole('heading', { name: 'Algo falló en el sistema.' }).count(), 0);
     await page.getByText('Sin coincidencias en el historial procesado para esos filtros.').waitFor();

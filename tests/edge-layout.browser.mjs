@@ -47,7 +47,7 @@ try {
     } else if (path.endsWith('/history/chat')) {
       evidence.queries.push(route.request().postDataJSON());
       body = { id: 'a'.repeat(32), status: 'complete', phase: 'complete', reply: 'Resultados de la prueba visual.',
-      result: { total: 24, counting: 'appearances', items: Array.from({ length: 24 }, (_, index) => ({
+      result: { total: 24, counting: 'appearances', filters: { type: 'paila', color: 'rojo', start: started, end: ended }, items: Array.from({ length: 24 }, (_, index) => ({
         uid: String(index), camera: 'little1', title: 'Little Caesars 1', type: 'paila', color: 'rojo', first: started + index,
         playback: { camera: 'little1', at: started + 5, run_id: run.id, track_uid: String(index) },
       })) } };
@@ -108,7 +108,7 @@ try {
   await map.scrollIntoViewIfNeeded();
   await checkViewport(390, 710, 'live-small-mobile');
   await page.setViewportSize({ width: 1440, height: 900 });
-  await page.getByRole('checkbox', { name: 'Responder con voz' }).uncheck();
+  await page.getByRole('button', { name: 'Silenciar voz', exact: true }).click();
   await composer.fill('Mostrame las pailas rojas');
   await page.getByRole('button', { name: 'Enviar', exact: true }).click();
   await page.getByRole('button', { name: 'Ver video', exact: true }).first().click();
@@ -119,6 +119,15 @@ try {
   assert.deepEqual(await rect(page.locator('[data-result-video]')), before);
   await checkViewport(1440, 900, 'history-desktop');
   await checkViewport(390, 844, 'history-mobile');
+  await checkViewport(390, 710, 'history-small-mobile');
+  assert.equal(await page.getByLabel('Filtros de la búsqueda').count(), 0);
+  assert.equal(await page.locator('audio, #history-transcript').count(), 0);
+  assert.equal(await page.getByText('Resultados de la prueba visual.', { exact: true }).count(), 0);
+  assert.match(await page.locator('[data-result-context]').innerText(), /Paila · Rojo · Todas las cámaras/);
+  await page.locator('[data-result-list]').evaluate(element => { element.scrollTop = 0; });
+  const listBox = await rect(page.locator('[data-result-list]')), firstResult = await rect(page.locator('[data-result-number="1"]'));
+  assert(firstResult.y >= listBox.y && firstResult.y + firstResult.height <= listBox.y + listBox.height, 'Small mobile must have room for a complete result card');
+  await page.screenshot({ path: `${output}/history-small-mobile-first-result.png` });
   assert.deepEqual(evidence.errors, []);
   await writeFile(`${output}/layout.json`, JSON.stringify(evidence, null, 2));
   console.log(JSON.stringify({ passed: true, viewports: evidence.viewports.map(row => row.label), errors: evidence.errors }));

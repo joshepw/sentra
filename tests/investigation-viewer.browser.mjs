@@ -26,7 +26,7 @@ try {
   await page.goto(origin + '/edge');
   await page.getByRole('link', { name: 'Entrar con Zitadel' }).click();
   await page.getByRole('textbox', { name: 'Consulta de cámaras' }).waitFor();
-  await page.getByRole('checkbox', { name: 'Responder con voz' }).uncheck();
+  await page.getByRole('button', { name: 'Silenciar voz', exact: true }).click();
   const idle = () => page.waitForFunction(() => ![...document.querySelectorAll('button')].find(b => b.textContent === 'Grabar voz')?.disabled, null, { timeout: 65000 });
   const send = async text => {
     await page.getByRole('textbox', { name: 'Consulta de cámaras' }).fill(text);
@@ -58,7 +58,7 @@ try {
   await send('Anterior resultado');
   assert.equal(await results.locator('[aria-current="true"]').getAttribute('data-result-number'), '2');
   await ready();
-  await page.getByRole('checkbox', { name: 'Responder con voz' }).check();
+  await page.getByRole('button', { name: 'Activar voz', exact: true }).click();
   await page.getByRole('button', { name: 'Grabar voz', exact: true }).click();
   await page.waitForTimeout(3500);
   const submittedVoice = page.waitForResponse(response => new URL(response.url()).pathname === '/edge/api/history/chat' && response.request().method() === 'POST');
@@ -77,7 +77,7 @@ try {
     await new Promise(resolve => element.addEventListener('seeked', resolve, { once: true }));
     return { absolute: started + element.currentTime, segment: element.dataset.segment, previous: previous.id };
   });
-  await page.getByRole('checkbox', { name: 'Responder con voz' }).uncheck();
+  await page.getByRole('button', { name: 'Silenciar voz', exact: true }).click();
   await send('Retrocedé diez segundos');
   await ready();
   const after = await video.evaluate(element => ({ absolute: Number(element.dataset.started) + element.currentTime, segment: element.dataset.segment, paused: element.paused }));
@@ -94,10 +94,7 @@ try {
   await page.getByRole('button', { name: 'Pausar', exact: true }).click();
   await results.locator('[data-result-list]').evaluate(element => { element.scrollTop = 0; });
   await page.screenshot({ path: output + '/investigation-desktop.png' });
-  const beforeConversation = await video.boundingBox();
-  await page.getByRole('button', { name: /^Conversación/ }).click();
-  assert.deepEqual(await video.boundingBox(), beforeConversation);
-  await page.getByRole('button', { name: 'Ocultar conversación', exact: false }).click();
+  assert.equal(await page.getByRole('button', { name: /Conversación/i }).count(), 0);
   await page.setViewportSize({ width: 390, height: 760 });
   for (const locator of [video, results, page.getByRole('button', { name: 'Grabar voz', exact: true })]) {
     const box = await locator.boundingBox();

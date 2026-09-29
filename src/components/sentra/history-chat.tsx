@@ -7,41 +7,33 @@ import { flushSync } from "react-dom";
 import { HistoryPlayer, type PlayerControl } from "@/components/sentra/history-player";
 import { EdgeTrafficChart } from "@/components/sentra/edge-traffic-chart";
 import { CorridorMap } from "@/components/sentra/corridor-map";
-import { AssistantProgress, assistantPhaseLabel } from "@/components/sentra/assistant-feedback";
+import { AssistantProgress } from "@/components/sentra/assistant-feedback";
+import type { AssistantVoice } from "@/components/sentra/assistant-voice";
 import { VoiceRecorder } from "@/components/sentra/voice-recorder";
 import { COLOR, TYPE } from "@/lib/edge-replay";
-import { historyTime, type Coverage, type HistoryItem, type Playback, type ToolResult } from "@/lib/history-detections";
+import { historyRange, historyTime, type Coverage, type HistoryItem, type Playback, type ToolResult } from "@/lib/history-detections";
 import type { ViewerState, ViewerAction, ViewChanges, ActionFailure } from "@/lib/viewer-actions";
 
 type Job = { id: string; status: string; phase: string; transcript?: string; reply?: string; error?: string; voice_error?: string; audio_url?: string; tool?: string; result?: ToolResult; action?: ViewerAction };
-type Message = { id: string; question: string; reply?: string; audio?: string; voiceError?: string };
 const CameraMap = memo(CorridorMap);
 const button = "cursor-pointer rounded-lg border border-[var(--border)] px-3 py-2 text-xs transition-colors hover:border-accent disabled:cursor-default disabled:opacity-40";
 
-function Voice({ source, auto }: { source: string; auto: boolean }) {
-  const audio = useRef<HTMLAudioElement>(null), [blocked, setBlocked] = useState(false);
-  const played = useRef("");
-  useEffect(() => { if (auto && played.current !== source) { played.current = source; void audio.current?.play().catch(() => setBlocked(true)); } else if (!auto) audio.current?.pause(); }, [source, auto]);
-  return <div><audio ref={audio} controls preload="none" src={source} className="h-7 w-48 max-w-full" aria-label="Respuesta hablada" />{blocked && <p className="text-[10px] text-text-faint">Tocá reproducir para escuchar.</p>}</div>;
-}
-
-export function HistoryChat({ csrf, onExpired, viewer, onView, cameras, children, deferTraffic }: {
+export function HistoryChat({ csrf, onExpired, viewer, onView, cameras, children, deferTraffic, voice }: {
   csrf: string; onExpired: () => void; viewer: ViewerState; onView: (changes: ViewChanges) => void;
-  cameras: { key: string; title: string; receiving: boolean }[]; children: ReactNode; deferTraffic: boolean;
+  cameras: { key: string; title: string; receiving: boolean }[]; children: ReactNode; deferTraffic: boolean; voice: AssistantVoice;
 }) {
   const [coverage, setCoverage] = useState<Coverage>({ runs: [] });
   const liveRun = coverage.runs.find(run => run.kind === "live");
   // Omitting the run would let the backend choose an older archive by default.
   const runId = liveRun?.id ?? "live";
   const mapCameras = useMemo(() => cameras.map(camera => ({ id: camera.key, nombre: camera.title, n_giro: 0, n_rojo: 0 })), [cameras]);
-  const [text, setText] = useState(""), [messages, setMessages] = useState<Message[]>([]), [result, setResult] = useState<ToolResult | null>(null);
-  const [busy, setBusy] = useState(false), [phase, setPhase] = useState(""), [error, setError] = useState(""), [voice, setVoice] = useState(true);
+  const [text, setText] = useState(""), [result, setResult] = useState<ToolResult | null>(null);
+  const [busy, setBusy] = useState(false), [phase, setPhase] = useState(""), [error, setError] = useState("");
   const [selection, setSelection] = useState<{ playback: Playback; item?: HistoryItem } | null>(null);
   const [recording, setRecording] = useState(false), [paging, setPaging] = useState(false);
   const abort = useRef<AbortController | null>(null), mounted = useRef(true), sending = useRef(false);
-  const log = useRef<HTMLDivElement>(null);
   const player = useRef<PlayerControl>(null);
-  const [transcriptOpen, setTranscriptOpen] = useState(false);
+  const stopVoice = voice.stop;
   const localRevision = useRef(0), conversation = useRef("");
   const current = useRef({ viewer, result, selection, runId });
   useEffect(() => { current.current = { viewer, result, selection, runId }; }, [viewer, result, selection, runId]);
@@ -55,8 +47,8 @@ export function HistoryChat({ csrf, onExpired, viewer, onView, cameras, children
   };
   useEffect(() => {
     mounted.current = true;
-    return () => { mounted.current = false; abort.current?.abort(); };
-  }, []);
+    return () => { mounted.current = false; abort.current?.abort(); stopVoice(); };
+  }, [stopVoice]);
   useEffect(() => {
     const controller = new AbortController(); let timer: ReturnType<typeof setTimeout> | undefined;
     const load = async () => {
@@ -71,7 +63,6 @@ export function HistoryChat({ csrf, onExpired, viewer, onView, cameras, children
     };
     void load(); return () => { controller.abort(); if (timer) clearTimeout(timer); };
   }, [onExpired]);
-  useEffect(() => { if (log.current) log.current.scrollTop = log.current.scrollHeight; }, [messages, phase]);
   const post = useCallback(async (path: string, body: unknown, signal?: AbortSignal) => {
     const response = await fetch(`/edge/api/history/${path}`, { method: "POST", headers: { "Content-Type": "application/json", "X-CSRF-Token": csrf }, body: JSON.stringify(body), signal });
     if (response.status === 401) { onExpired(); throw new Error("La sesión venció."); }
@@ -81,17 +72,16 @@ export function HistoryChat({ csrf, onExpired, viewer, onView, cameras, children
   }, [csrf, onExpired]);
   const send = async (question: string, sound?: { audio: string; mime: string }) => {
     if (sending.current || (!question.trim() && !sound)) return;
+    const voiceRequest = voice.prepare();
     sending.current = true; setBusy(true); setPhase(sound ? "transcribing" : "planning"); setError(""); setText("");
     abort.current?.abort(); const controller = new AbortController(); abort.current = controller;
-    const localId = crypto.randomUUID();
-    setMessages(previous => [...previous.slice(-9), { id: localId, question: sound ? "Consulta de voz…" : question }]);
     try {
       const snapshot = current.current, expectedRevision = revision();
       conversation.current ||= crypto.randomUUID();
       const visible = snapshot.result?.items ?? [];
       let job: Job = await post("chat", { ...(sound ?? { text: question }), run_id: snapshot.runId || undefined,
         selected_uid: snapshot.selection?.item?.uid ?? snapshot.selection?.playback.incident_uid ?? snapshot.selection?.playback.track_uid,
-        context_id: conversation.current, voice,
+        context_id: conversation.current, voice: !voice.muted,
         viewer: { ...snapshot.viewer, revision: expectedRevision, result_ids: visible.slice(0, 1000).map(item => item.uid), filters: snapshot.result?.filters ?? {} },
       }, controller.signal);
       // send runs only from form, microphone and shortcut events; never during render.
@@ -107,8 +97,6 @@ export function HistoryChat({ csrf, onExpired, viewer, onView, cameras, children
       while (["queued", "working", "waiting_action"].includes(job.status)) {
         if (controller.signal.aborted) return;
         setPhase(job.phase);
-        const { transcript, reply } = job;
-        if (transcript || reply) setMessages(previous => previous.map(message => message.id === localId ? { ...message, question: transcript ?? message.question, reply } : message));
         if (job.result && !resultReceived) receive(job.result);
         // eslint-disable-next-line react-hooks/purity -- Elapsed time in the same event-driven poll.
         if (performance.now() > deadline) throw new Error("La consulta sigue demorando. Podés volver a intentar en un momento.");
@@ -155,10 +143,12 @@ export function HistoryChat({ csrf, onExpired, viewer, onView, cameras, children
         job = await response.json();
       }
       if (job.status === "failed") throw new Error(job.error || "No se pudo completar la consulta.");
-      const { transcript, reply, audio_url, voice_error } = job;
-      setMessages(previous => previous.map(message => message.id === localId ? { ...message, question: transcript ?? message.question, reply, audio: audio_url, voiceError: voice_error } : message));
       if (job.result) {
         if (!resultReceived) receive(job.result);
+      }
+      if (!controller.signal.aborted) {
+        if (job.audio_url) void voice.play(job.audio_url, voiceRequest);
+        else if (job.voice_error) voice.fail(voiceRequest);
       }
     } catch (reason) { if (!controller.signal.aborted) setError((reason as Error).message); }
     finally { sending.current = false; if (mounted.current && !controller.signal.aborted) { setBusy(false); setPhase(""); } }
@@ -216,33 +206,37 @@ export function HistoryChat({ csrf, onExpired, viewer, onView, cameras, children
     setSelection(previous => previous?.item?.uid === uid ? { ...previous, item: { ...previous.item, review: decision } } : previous);
   };
   const selectedIndex = result?.items?.findIndex(item => item.uid === selection?.item?.uid) ?? -1;
-  const latest = messages.at(-1);
   const cameraTitle = (key: string) => cameras.find(camera => camera.key === key)?.title ?? key;
   const filters = result?.filters;
-  return <section aria-label="Chat del historial" className="flex min-h-0 flex-1 flex-col pt-2">
-      {filters && <div aria-label="Filtros de la búsqueda" className="mb-2 flex shrink-0 gap-2 overflow-x-auto whitespace-nowrap px-3 text-[11px] text-accent sm:px-5">
-        <span>{filters.camera ? cameraTitle(String(filters.camera)) : "Todas las cámaras"}</span>
-        {filters.type && <span>· {TYPE[String(filters.type)] ?? filters.type}</span>}{filters.color && <span>· {COLOR[String(filters.color)] ?? filters.color}</span>}
-        {filters.kind && <span>· {filters.kind === "uturn" ? "Vueltas en U" : "Cruces en rojo"}</span>}
-        {filters.review && <span>· {filters.review === "confirmed" ? "Confirmadas" : filters.review === "dismissed" ? "Descartadas" : "Pendientes"}</span>}
-        {filters.start && filters.end && <span>· {historyTime(filters.start)} a {historyTime(filters.end)}</span>}
-      </div>}
+  const criteria = filters ? [
+    filters.type === "persona" ? "Personas" : filters.type === "auto" || filters.type === "carro" ? "Carro" : filters.type ? TYPE[String(filters.type)] ?? String(filters.type) : !filters.kind && result?.counting !== "candidate_events" ? "Vehículos" : "",
+    filters.color ? `${filters.type === "persona" ? "Camisa: " : ""}${COLOR[String(filters.color)] ?? filters.color}` : "",
+    filters.kind ? filters.kind === "uturn" ? "Vueltas en U" : "Cruces en rojo" : "",
+    filters.review ? filters.review === "confirmed" ? "Confirmadas" : filters.review === "dismissed" ? "Descartadas" : "Pendientes" : "",
+    filters.camera ? cameraTitle(String(filters.camera)) : "Todas las cámaras",
+  ].filter(Boolean).join(" · ") : "";
+  const range = filters ? historyRange(filters.start, filters.end) : "";
+  return <section aria-label="Consulta del historial" className="flex min-h-0 flex-1 flex-col pt-2">
     <div aria-label="Mapa y tráfico del corredor" className="mb-3 flex h-[clamp(100px,15dvh,128px)] shrink-0 snap-x snap-mandatory gap-3 overflow-x-auto px-3 sm:grid sm:h-[clamp(112px,21dvh,220px)] sm:grid-cols-[minmax(0,1fr)_minmax(240px,32%)] sm:overflow-visible sm:px-5 lg:grid-cols-[minmax(0,1fr)_320px]">
       <div className="h-full min-h-0 min-w-0 basis-[88%] shrink-0 snap-start" aria-label="Mapa del corredor"><CameraMap cams={mapCameras} sel={Math.max(0, cameras.findIndex(camera => camera.key === viewer.camera))} onPick={index => { choose(null); onView({ camera: cameras[index].key, all: false }); }} admin={false} api="" token="" loadSavedLayout={false} compact /></div>
       <div className="h-full min-h-0 min-w-0 basis-[88%] shrink-0 snap-start"><EdgeTrafficChart camera={viewer.camera} title={cameraTitle(viewer.camera)} run={liveRun} onExpired={onExpired} defer={deferTraffic} /></div>
     </div>
-    <div className="grid min-h-0 flex-1 grid-rows-[minmax(120px,2.2fr)_minmax(64px,1fr)] gap-3 px-3 pb-3 sm:px-5 lg:grid-cols-[minmax(0,1fr)_320px] lg:grid-rows-1">
+    <div className="grid min-h-0 flex-1 grid-rows-[minmax(120px,1fr)_minmax(96px,1fr)] gap-3 px-3 pb-3 sm:px-5 lg:grid-cols-[minmax(0,1fr)_320px] lg:grid-rows-1">
       <div className="min-h-0 min-w-0" aria-label="Panel de video">
         {selection ? <HistoryPlayer key={`${selection.playback.camera}:${selection.playback.at}:${selection.playback.track_uid ?? selection.playback.incident_uid ?? ""}`} controlRef={player} playback={selection.playback} item={selection.item} onClose={() => choose(null)} onExpired={onExpired} onReview={review} boxes={viewer.boxes} onBoxes={boxes => onView({ boxes })} /> : <div className="h-full min-h-0 overflow-y-auto rounded-xl" data-camera-view>{children}</div>}
       </div>
       <aside aria-label="Resultados de la consulta" className="flex min-h-0 min-w-0 flex-col overflow-hidden rounded-xl border border-[var(--border)] bg-[#0c1b16]">
-        <div className="flex shrink-0 items-center justify-between gap-2 border-b border-[var(--border)] px-3 py-2">
-          <h2 className="text-sm">{result?.total !== undefined ? `${result.total} ${result.counting === "candidate_events" ? "incidencias" : "apariciones"}` : "Resultados"}</h2>
+        <div className="shrink-0 border-b border-[var(--border)] px-3 py-1 lg:py-2" data-result-context>
+          <div className="flex items-center justify-between gap-2">
+          <h2 className="text-sm">{result?.total !== undefined ? `${result.total} ${result.counting === "candidate_events" ? result.total === 1 ? "incidencia" : "incidencias" : result.total === 1 ? "aparición" : "apariciones"}` : "Resultados"}</h2>
           {selectedIndex >= 0 && <div className="flex items-center gap-2"><span className="text-xs text-accent">{selectedIndex + 1} / {result?.total ?? result?.items?.length}</span><button className={button} aria-label="Resultado anterior" disabled={busy || paging || selectedIndex === 0} onClick={() => void manualNavigate("previous")}>←</button><button className={button} aria-label="Siguiente resultado" disabled={busy || paging || (selectedIndex === (result?.items?.length ?? 0) - 1 && !result?.next_cursor)} onClick={() => void manualNavigate("next")}>→</button></div>}
+          </div>
+          {criteria && <p className="mt-1 text-[11px] leading-snug text-text-muted">{criteria}</p>}
+          {range && <p className="mt-0.5 text-[11px] leading-snug text-text-faint">{range}</p>}
         </div>
         {busy && <div className="shrink-0 px-3 pt-2 lg:pt-3"><AssistantProgress phase={phase} /></div>}
-        <div className="min-h-0 flex-1 space-y-2 overflow-y-auto overscroll-contain p-3" data-result-list>
-          {!result && !busy && <div className="space-y-3 py-3 text-sm text-text-faint"><p>Buscá vehículos o incidencias por texto o voz.</p><div className="flex flex-wrap gap-2">{[["Pailas rojas", "Mostrame las pailas rojas"], ["Vueltas en U", "Mostrame las vueltas en U"], ["Cruces en rojo", "Mostrame los cruces en rojo"], ["Cobertura", "Qué cámaras y horas tienen detecciones guardadas"]].map(([label, question]) => <button key={label} className={button} disabled={busy || recording} onClick={() => void send(question)}>{label}</button>)}</div><p className="text-xs leading-relaxed">Después podés decir “abrí el segundo”, “siguiente resultado” o “retrocedé diez segundos”.</p></div>}
+        <div className="min-h-0 flex-1 space-y-2 overflow-y-auto overscroll-contain p-2 lg:p-3" data-result-list>
+          {!result && !busy && <div className="space-y-3 py-3 text-sm text-text-faint"><p>Búsqueda de personas, vehículos e incidencias por texto o voz.</p><div className="flex flex-wrap gap-2">{[["Pailas rojas", "Mostrar las pailas rojas"], ["Vueltas en U", "Mostrar las vueltas en U"], ["Cruces en rojo", "Mostrar los cruces en rojo"], ["Cobertura", "Qué cámaras y horas tienen detecciones guardadas"]].map(([label, question]) => <button key={label} className={button} disabled={busy || recording} onClick={() => void send(question)}>{label}</button>)}</div><p className="text-xs leading-relaxed">Controles por voz: “abrir el segundo”, “siguiente resultado” o “retroceder diez segundos”.</p></div>}
           {result?.coverage && <p className="hidden text-[11px] leading-relaxed text-text-faint lg:block">{result.counting !== "candidate_events" && "Una misma unidad puede aparecer más de una vez. "}{result.coverage.runs.some(run => run.kind === "archive" && run.status !== "complete") ? "Cobertura parcial: solo los momentos analizados." : "Resultados de los momentos analizados."}</p>}
           {(result?.note || result?.reason) && <p className="text-xs leading-relaxed text-warning">{result.note ?? result.reason}</p>}
           {result?.items?.length === 0 && <p className="py-3 text-sm text-text-faint">Sin coincidencias en el historial procesado para esos filtros.</p>}
@@ -257,18 +251,8 @@ export function HistoryChat({ csrf, onExpired, viewer, onView, cameras, children
       </aside>
     </div>
     <footer className="relative shrink-0 border-t border-[var(--border)] bg-[#0c1b16] px-3 pt-2 pb-[max(.75rem,env(safe-area-inset-bottom))] sm:px-5" aria-label="Asistente de cámaras">
-      <div hidden={!transcriptOpen} ref={log} id="history-transcript" className="absolute inset-x-3 bottom-full z-20 max-h-[30dvh] space-y-3 overflow-y-auto rounded-t-xl border border-[var(--border)] bg-[#07130e] p-3 shadow-xl sm:inset-x-5">
-        {!messages.length && <p className="text-xs text-text-faint">Tus consultas aparecerán acá.</p>}
-        {messages.map(message => <div key={message.id}><p className="text-sm text-accent">Vos: {message.question}</p>{message.reply && <p className="mt-1 whitespace-pre-wrap text-sm text-text">{message.reply}</p>}{message.voiceError && <p className="text-xs text-warning">{message.voiceError}</p>}</div>)}
-      </div>
-      <div className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-1">
-        <button className="cursor-pointer text-xs text-text-faint hover:text-accent" aria-expanded={transcriptOpen} aria-controls="history-transcript" onClick={() => setTranscriptOpen(value => !value)}>{transcriptOpen ? "Ocultar conversación" : "Conversación"}{messages.length ? ` · ${messages.length}` : ""}</button>
-        <label className="flex items-center gap-1 text-[11px] text-text-faint"><input type="checkbox" checked={voice} onChange={event => setVoice(event.target.checked)} />Responder con voz</label>
-        {latest?.audio && <Voice source={latest.audio} auto={voice && !recording && !busy} />}
-        <p aria-live={busy ? "off" : "polite"} className="min-w-0 basis-full truncate text-xs text-text-faint lg:basis-auto lg:flex-1">{busy ? assistantPhaseLabel(phase) : latest?.reply ?? "Pedile a Senttra qué querés ver."}</p>
-      </div>
       {error && <p role="alert" className="mb-2 text-xs text-warning">{error}</p>}
-      <form onSubmit={event => { event.preventDefault(); void send(text); }} className="flex gap-2"><label className="sr-only" htmlFor="history-question">Consulta de cámaras</label><input id="history-question" autoComplete="off" maxLength={2000} value={text} onChange={event => setText(event.target.value)} placeholder="Buscá o controlá el video…" className="min-w-0 flex-1 rounded-lg border border-[var(--border)] bg-bg-input px-3 py-3 text-sm text-text outline-none focus:border-accent" disabled={recording} /><button type="submit" className={`${button} border-accent/50 text-accent`} disabled={busy || recording || !text.trim()}>Enviar</button><VoiceRecorder disabled={busy} onSend={sound => void send("", sound)} onActivityChange={setRecording} onError={setError} /></form>
+      <form onSubmit={event => { event.preventDefault(); void send(text); }} className="flex gap-2"><label className="sr-only" htmlFor="history-question">Consulta de cámaras</label><input id="history-question" autoComplete="off" maxLength={2000} value={text} onChange={event => setText(event.target.value)} placeholder="Buscar o controlar el video…" className="min-w-0 flex-1 rounded-lg border border-[var(--border)] bg-bg-input px-3 py-3 text-sm text-text outline-none focus:border-accent" disabled={recording} /><button type="submit" className={`${button} border-accent/50 text-accent`} disabled={busy || recording || !text.trim()}>Enviar</button><VoiceRecorder disabled={busy} onSend={sound => void send("", sound)} onInteraction={voice.unlock} onActivityChange={active => { if (active) voice.prepare(); setRecording(active); }} onError={setError} /></form>
     </footer>
   </section>;
 }

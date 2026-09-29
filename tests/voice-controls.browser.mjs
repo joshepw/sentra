@@ -26,7 +26,7 @@ try {
   await page.goto(origin + '/edge');
   await page.getByRole('link', { name: 'Entrar con Zitadel' }).click();
   await page.getByRole('textbox', { name: 'Consulta de cámaras' }).waitFor();
-  await page.getByRole('checkbox', { name: 'Responder con voz' }).uncheck();
+  await page.getByRole('button', { name: 'Silenciar voz', exact: true }).click();
   const send = async text => {
     await page.getByRole('textbox', { name: 'Consulta de cámaras' }).fill(text);
     await page.getByRole('button', { name: 'Enviar', exact: true }).click();
@@ -39,7 +39,7 @@ try {
   assert.equal(await results.locator('article').count(), 14);
   assert((await results.locator('article').allTextContents()).every(text => text.includes('Seguros Atlántida')));
   evidence.refinement = true;
-  await page.getByRole('checkbox', { name: 'Responder con voz' }).check();
+  await page.getByRole('button', { name: 'Activar voz', exact: true }).click();
   await send('Abrí la segunda');
   const player = page.getByRole('region', { name: 'Video del resultado' });
   await player.waitFor();

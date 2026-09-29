@@ -25,7 +25,7 @@ export type ToolResult = {
   cameras?: { camera: string; title: string; receiving: boolean }[];
 };
 
-export function historyTime(value: number | string | null | undefined, date = true) {
+function historyInstant(value: number | string | null | undefined) {
   let milliseconds = NaN;
   if (typeof value === "number") milliseconds = value * 1000;
   else if (typeof value === "string") {
@@ -40,7 +40,27 @@ export function historyTime(value: number | string | null | undefined, date = tr
       milliseconds = Date.parse(zoned);
     }
   }
-  const instant = new Date(milliseconds);
+  return new Date(milliseconds);
+}
+
+export function historyRange(start: number | string | undefined, end: number | string | undefined) {
+  const first = historyInstant(start), last = historyInstant(end);
+  const date = new Intl.DateTimeFormat("es-HN", { timeZone: "America/Tegucigalpa", day: "2-digit", month: "short", year: "numeric" });
+  const time = new Intl.DateTimeFormat("es-HN", { timeZone: "America/Tegucigalpa", hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
+  const validFirst = Number.isFinite(first.getTime()), validLast = Number.isFinite(last.getTime());
+  if (!validFirst && !validLast) return "";
+  const stamp = (instant: Date) => {
+    const parts = date.formatToParts(instant);
+    const part = (type: Intl.DateTimeFormatPartTypes) => parts.find(value => value.type === type)?.value;
+    return `${part("day")} ${part("month")} ${part("year")}, ${time.format(instant)}`;
+  };
+  if (!validLast) return `Desde ${stamp(first)} · HN`;
+  if (!validFirst) return `Hasta ${stamp(last)} · HN`;
+  return `${stamp(first)}–${date.format(first) === date.format(last) ? time.format(last) : stamp(last)} · HN`;
+}
+
+export function historyTime(value: number | string | null | undefined, date = true) {
+  const instant = historyInstant(value);
   if (!Number.isFinite(instant.getTime())) return "Hora no disponible";
   return new Intl.DateTimeFormat("es-HN", {
     timeZone: "America/Tegucigalpa", ...(date ? { day: "2-digit", month: "short" } : {}),
