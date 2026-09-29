@@ -9,6 +9,7 @@ import { CorridorMap } from "@/components/sentra/corridor-map";
 import { SentraLogoMark, SentraWordmark } from "@/components/sentra/ui";
 import { LiveDetectionOverlay, type DetectionStatus } from "@/components/sentra/live-detection-overlay";
 import { fragmentName, type VideoFragment } from "@/lib/live-detections";
+import { LIVE_HLS_CONFIG, livePlaybackPosition } from "@/lib/live-playback";
 
 type HlsInstance = {
   loadSource: (source: string) => void;
@@ -66,16 +67,16 @@ function LiveCamera({ camera, ready, goLive, showBoxes, onBoxes }: { camera: Cam
     let player: HlsInstance | null = null;
     let retry: ReturnType<typeof setTimeout> | null = null;
     let closed = false;
+    let nativeInitialPosition = false;
     let lastTime = 0, lastProgress = Date.now();
     const connect = () => {
       if (closed) return;
       player?.destroy();
+      nativeInitialPosition = false;
       fragments.current = [];
       lastTime = 0; lastProgress = Date.now();
       if (WindowHls?.isSupported()) {
-        player = new WindowHls({ enableWorker: true, lowLatencyMode: false, liveSyncDurationCount: 2,
-          liveMaxLatencyDurationCount: 5, maxBufferLength: 18, backBufferLength: 30,
-          manifestLoadingMaxRetry: 3, levelLoadingMaxRetry: 3, fragLoadingMaxRetry: 3 });
+        player = new WindowHls(LIVE_HLS_CONFIG);
         player.on(WindowHls.Events.ERROR, (_event, details) => {
           if (closed || !details.fatal) return;
           setStatus("Reconectando…");
@@ -92,16 +93,30 @@ function LiveCamera({ camera, ready, goLive, showBoxes, onBoxes }: { camera: Cam
         player.on(WindowHls.Events.FRAG_BUFFERED, remember);
         player.on(WindowHls.Events.FRAG_CHANGED, remember);
         player.loadSource(camera.url); player.attachMedia(element);
-      } else if (element.canPlayType("application/vnd.apple.mpegurl")) element.src = camera.url;
+      } else if (element.canPlayType("application/vnd.apple.mpegurl")) {
+        nativeInitialPosition = true;
+        element.src = camera.url;
+      }
       else setStatus("Este navegador no puede reproducir la señal.");
     };
     const WindowHls = window.Hls;
     const playing = () => { setStatus("En vivo"); lastProgress = Date.now(); };
     const waiting = () => setStatus("Cargando señal…");
     const paused = () => { if (!closed) setStatus("Pausado"); };
-    const loaded = () => { void element.play().catch(() => setStatus("Pulsá reproducir")); };
+    const positionNative = () => {
+      if (!nativeInitialPosition) return;
+      const position = livePlaybackPosition(element.seekable);
+      if (position === null) return;
+      nativeInitialPosition = false;
+      element.currentTime = position;
+    };
+    const loaded = () => {
+      positionNative();
+      void element.play().catch(() => setStatus("Pulsá reproducir"));
+    };
     element.addEventListener("playing", playing); element.addEventListener("waiting", waiting);
     element.addEventListener("pause", paused); element.addEventListener("loadedmetadata", loaded);
+    element.addEventListener("progress", positionNative);
     connect();
     const watch = setInterval(() => {
       if (Math.abs(element.currentTime - lastTime) > .01) { lastTime = element.currentTime; lastProgress = Date.now(); }
@@ -114,13 +129,15 @@ function LiveCamera({ camera, ready, goLive, showBoxes, onBoxes }: { camera: Cam
       fragments.current = [];
       element.removeEventListener("playing", playing); element.removeEventListener("waiting", waiting);
       element.removeEventListener("pause", paused); element.removeEventListener("loadedmetadata", loaded);
+      element.removeEventListener("progress", positionNative);
       element.removeAttribute("src"); element.load();
     };
   }, [camera.url, camera.receiving, ready]);
   useEffect(() => {
     const element = video.current;
-    if (goLive && element?.seekable.length) {
-      element.currentTime = Math.max(0, element.seekable.end(element.seekable.length - 1) - 1.5);
+    if (goLive && element) {
+      const position = livePlaybackPosition(element.seekable);
+      if (position !== null) element.currentTime = position;
       void element.play().catch(() => {});
     }
   }, [goLive]);
