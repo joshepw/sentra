@@ -5,6 +5,7 @@ import { containedVideo } from "@/lib/live-detections";
 import { COLOR, TYPE } from "@/lib/edge-replay";
 import { historyFrameAt, historyTime, type HistoryFrame, type HistoryItem, type Playback } from "@/lib/history-detections";
 import type { MediaCommand } from "@/lib/viewer-actions";
+import { VideoLoading } from "@/components/sentra/assistant-feedback";
 
 type Segment = { id: string; started: number; ended: number; url: string; state: string };
 const button = "cursor-pointer rounded-lg border border-[var(--border)] px-3 py-2 text-xs hover:border-accent disabled:opacity-40";
@@ -21,6 +22,7 @@ export function HistoryPlayer({ playback, item, onClose, onExpired, onReview, bo
   const [frames, setFrames] = useState<HistoryFrame[]>([]), [focus, setFocus] = useState<{ local_id: number; session: string } | null>(null);
   const [position, setPosition] = useState(playback.at), [reviewing, setReviewing] = useState(false);
   const [needsPlay, setNeedsPlay] = useState(false);
+  const [buffering, setBuffering] = useState(true);
   const [paused, setPaused] = useState(false), [controlling, setControlling] = useState(false);
   const wantPlaying = useRef(true), commandId = useRef(0);
   useEffect(() => () => { commandId.current++; }, []);
@@ -161,17 +163,19 @@ export function HistoryPlayer({ playback, item, onClose, onExpired, onReview, bo
   return <section aria-label="Video del resultado" className="flex h-full min-h-0 flex-col overflow-hidden rounded-xl border border-accent/40 bg-[#08130f] text-text">
     <div className="flex shrink-0 items-start justify-between gap-2 px-3 py-2"><div className="min-w-0"><p className="truncate text-sm text-accent">{item?.title ?? playback.camera} · grabación</p><p className="mt-1 text-[10px] text-text-faint">{historyTime(position)} · Honduras</p></div><button className={button} onClick={onClose}>Cerrar video</button></div>
     {error && <p role="status" className="shrink-0 px-3 pb-2 text-xs text-warning">{error}</p>}
-    {!segment && !error && <p role="status" className="p-8 text-sm text-text-faint">Abriendo video…</p>}
+    {!segment && !error && <div className="relative min-h-0 flex-1 bg-black"><VideoLoading label="Abriendo la grabación" /></div>}
     {segment && <div className="relative min-h-0 flex-1 overflow-hidden bg-black">
       <video key={segment.id} ref={video} src={segment.url} data-result-video data-segment={segment.id} data-started={segment.started} controls autoPlay={!paused} muted playsInline className="h-full w-full object-contain"
         onLoadedMetadata={() => { if (video.current) video.current.currentTime = Math.min(Math.max(0, initial - segment.started), Math.max(0, video.current.duration - .1)); }}
-        onLoadedData={play} onPlaying={() => setNeedsPlay(false)}
+        onLoadStart={() => setBuffering(true)} onWaiting={() => setBuffering(true)} onCanPlay={() => setBuffering(false)}
+        onLoadedData={() => { setBuffering(false); play(); }} onPlaying={() => { setNeedsPlay(false); setBuffering(false); }}
         onPlay={() => { wantPlaying.current = true; setPaused(false); }}
-        onPause={event => { if (event.currentTarget === video.current && !event.currentTarget.ended && event.currentTarget.readyState >= 2) { wantPlaying.current = false; setPaused(true); } }}
-        onError={() => setError("No se pudo reproducir la grabación. Cerrá el video y volvé a abrirlo.")}
+        onPause={event => { if (event.currentTarget === video.current && !event.currentTarget.ended && event.currentTarget.readyState >= 2) { wantPlaying.current = false; setPaused(true); setBuffering(false); } }}
+        onError={() => { setBuffering(false); setError("No se pudo reproducir la grabación. Cerrá el video y volvé a abrirlo."); }}
         onTimeUpdate={() => setPosition(segment.started + (video.current?.currentTime ?? 0))} onEnded={advance} />
       <canvas ref={canvas} data-history-overlay aria-label="Cajas históricas" className="pointer-events-none absolute inset-0 h-full w-full" />
       <span ref={caption} className="pointer-events-none absolute bottom-12 left-2 rounded bg-black/75 px-2 py-1 font-mono text-[10px] text-white" />
+      {buffering && !error && <VideoLoading label="Preparando la grabación" />}
     </div>}
     <div className="flex shrink-0 flex-wrap items-center gap-2 px-3 py-2">
       <button className={button} disabled={!segment || controlling} onClick={() => void manualControl({ operation: "seek", seconds: -10 })}>−10 s</button>
