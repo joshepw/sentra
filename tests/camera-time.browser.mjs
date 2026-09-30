@@ -11,12 +11,12 @@ const videoBytes = await readFile(videoPath);
 await mkdir(output, { recursive: true });
 const at = Date.parse('2026-09-30T07:00:00-06:00') / 1000;
 const cameras = [{ key: 'little', title: 'Little Caesars' }, { key: 'seguros', title: 'Seguros Atlántida' }];
-const segments = [[-12, 'b'], [-4, 'a'], [4, 'c'], [20, 'd']].map(([offset, id]) => ({
+const segments = [[-12, 'b'], [-4, 'a'], [4, 'c'], [20, 'd'], [1196, 'f'], [3596, '1']].map(([offset, id]) => ({
   id: id.repeat(24), camera: 'little', started: at + offset, ended: at + offset + 8,
   duration: 8, state: 'ok', url: `/fixture-video.mp4?segment=${id}`,
 }));
 const playback = { camera: 'little', at, run_id: null, source: 'camera_time', segment_id: 'a'.repeat(24) };
-const evidence = { fixture: true, errors: [], checks: [], queries: [], receipts: [], frames: 0 };
+const evidence = { fixture: true, errors: [], checks: [], queries: [], receipts: [], frames: 0, frameRuns: [], destinations: [] };
 let page, mode = 'search', job, count = 0, archiveDelay = 0, badMedia = false, completed = 0;
 const browser = await chromium.launch({ headless: true, executablePath: '/opt/google/chrome/chrome', args: ['--autoplay-policy=no-user-gesture-required'] });
 const waitUntil = async predicate => {
@@ -49,32 +49,43 @@ try {
     paused: video.paused, ready: video.readyState, seeking: video.seeking,
   }));
   await page.route('**/edge/api/**', async route => {
-    const path = new URL(route.request().url()).pathname;
+    const url = new URL(route.request().url()), path = url.pathname;
     let body;
     if (path.endsWith('/live/bootstrap')) body = { cameras: cameras.map(camera => ({ ...camera, receiving: true,
       url: `/edge/media/live/${camera.key}/index.m3u8` })), user: { csrf: 'fixture-only' }, storage: {} };
     else if (path.endsWith('/history/coverage')) body = { runs: [] };
     else if (path.endsWith('/live/archive')) {
       if (archiveDelay) await new Promise(resolve => setTimeout(resolve, archiveDelay));
-      body = { segments, gaps: [], truncated: false };
-    } else if (path.endsWith('/history/frames')) { evidence.frames++; body = { frames: [], focus: null }; }
+      body = { segments: segments.filter(segment => segment.started < Number(url.searchParams.get('end')) && segment.ended > Number(url.searchParams.get('start'))), gaps: [], truncated: false };
+    } else if (path.endsWith('/history/recording')) {
+      const target = Number(url.searchParams.get('at')); evidence.destinations.push(target);
+      if (mode === 'seek-delayed') await new Promise(resolve => setTimeout(resolve, 700));
+      if (mode === 'seek-error') { await route.fulfill({ status: 503, json: {} }); return; }
+      const row = segments.find(segment => segment.started <= target && target < segment.ended);
+      body = row ? { available: true, playback: { ...playback, at: target, segment_id: row.id,
+        run_id: row.id === 'f'.repeat(24) ? 'distant-run' : null } } : { available: false, reason: 'no_recording' };
+    } else if (path.endsWith('/history/frames')) {
+      evidence.frames++; evidence.frameRuns.push(Object.fromEntries(url.searchParams)); body = { frames: [], focus: null };
+    }
     else if (path.endsWith('/history/chat')) {
       const request = route.request().postDataJSON(); evidence.queries.push(request);
       job = { id: (++count).toString(16).padStart(32, '0'), phase: 'applying', status: 'waiting_action' };
       if (mode === 'search') {
         Object.assign(job, { status: 'complete', result: { total: 1, counting: 'appearances', filters: { camera: 'seguros' }, items: [{
-          uid: 'e'.repeat(24), camera: 'seguros', title: 'Seguros Atlántida', type: 'paila', color: 'rojo', first: at,
-          playback: { camera: 'seguros', at, run_id: 'fixture', track_uid: 'e'.repeat(24) },
+          uid: 'e'.repeat(24), camera: 'little', title: 'Little Caesars', type: 'paila', color: 'rojo', first: at,
+          playback: { camera: 'little', at, run_id: 'fixture', track_uid: 'e'.repeat(24) },
         }] } }); completed++;
       } else if (mode === 'unavailable') {
         Object.assign(job, { status: 'complete', result: { available: false, reason: 'no_recording',
           recording_request: { camera: 'little', at: at - 86400, local_time: '2026-09-29T07:00:00-06:00' },
           note: 'No hay grabación disponible de Little Caesars para el 29/09/2026 a las 07:00:00, hora de Honduras.' } }); completed++;
-      } else if (['pause', 'play', 'seek', 'missing-seek'].includes(mode)) {
-        assert.equal(request.selected_uid, undefined);
-        assert.deepEqual(request.viewer.playback, playback);
-        job.action = { kind: 'media', revision: request.viewer.revision, playback: request.viewer.playback,
-          operation: mode.includes('seek') ? 'seek' : mode, ...(mode.includes('seek') ? { seconds: mode === 'seek' ? -7 : -120 } : {}) };
+      } else if (['pause', 'play'].includes(mode) || mode.includes('seek')) {
+        const seconds = { seek: -7, 'missing-seek': -120, 'seek-forward': 1200, 'seek-back': -1200,
+          'seek-hour': 3600, 'seek-hour-back': -3600, 'seek-gap': 2400, 'seek-error': 1200, 'seek-delayed': 1200 }[mode];
+        if (!request.selected_uid) assert.deepEqual(request.viewer.playback, playback);
+        job.action = { kind: 'media', revision: request.viewer.revision,
+          ...(request.selected_uid ? { uid: request.selected_uid } : { playback: request.viewer.playback }),
+          operation: mode.includes('seek') ? 'seek' : mode, ...(mode.includes('seek') ? { seconds } : {}) };
       } else {
         job.action = { kind: 'open_archive', revision: request.viewer.revision,
           playback: mode === 'bad-media' ? { ...playback, at: at + 24, segment_id: 'd'.repeat(24) } : playback };
@@ -131,6 +142,33 @@ try {
   assert.equal(evidence.receipts.at(-1).status, 'applied');
   evidence.checks.push('Direct pause/play and cross-segment seek work; missing intervals fail without moving; repeated identical opens reset the time');
 
+  await send('Pausá', 'pause'); const beforeLong = await videoState();
+  await send('Movete 20 minutos para enfrente', 'seek-forward');
+  let afterLong = await videoState(); assert(afterLong.paused); assert.equal(afterLong.segment, 'f'.repeat(24));
+  assert.equal(evidence.receipts.at(-1).status, 'applied');
+  assert(Math.abs(afterLong.at - beforeLong.at - 1200) < .1);
+  await waitUntil(() => evidence.frameRuns.some(row => row.run_id === 'distant-run'));
+  assert(evidence.frameRuns.filter(row => row.run_id === 'distant-run').every(row => !row.uid));
+  await send('Retrocedé 20 minutos', 'seek-back');
+  assert(Math.abs((await videoState()).at - beforeLong.at) < .1);
+  await send('Reanudá', 'play');
+  await send('Avanzá una hora', 'seek-hour');
+  afterLong = await videoState(); assert.equal(afterLong.paused, false); assert.equal(afterLong.segment, '1'.repeat(24));
+  assert.equal(evidence.receipts.at(-1).status, 'applied');
+  await send('Pausá', 'pause'); await send('Retrocedé una hora', 'seek-hour-back');
+  const beforeMissing = await videoState(); assert(beforeMissing.paused);
+  await send('Avanzá 40 minutos', 'seek-gap');
+  assert.equal(evidence.receipts.at(-1).reason, 'unavailable_time'); assert.deepEqual(await videoState(), beforeMissing);
+  await send('Avanzá 20 minutos', 'seek-error');
+  assert.equal(evidence.receipts.at(-1).reason, 'playback_blocked'); assert.deepEqual(await videoState(), beforeMissing);
+  const beforeDelayed = evidence.receipts.length;
+  await send('Avanzá 20 minutos', 'seek-delayed', false);
+  await page.waitForTimeout(150); await page.getByRole('button', { name: 'Cerrar video', exact: true }).click();
+  await waitUntil(() => evidence.receipts.length > beforeDelayed);
+  assert.equal(evidence.receipts.at(-1).status, 'stale'); assert.equal(await page.locator('[data-result-video]').count(), 0);
+  await send('Little Caesars a las 7 de la mañana', 'open');
+  evidence.checks.push('20-minute and hour jumps fetch the distant destination, keep fractional time and pause/play, select its analysis, and reject missing/network/stale targets');
+
   await send('Pausá', 'pause'); const prior = await videoState();
   await send('Little Caesars ayer a las 7', 'unavailable');
   assert.deepEqual(await videoState(), prior);
@@ -154,6 +192,16 @@ try {
   assert.equal(evidence.receipts.at(-1).reason, 'recording_unavailable');
   assert.match(await page.getByRole('region', { name: 'Video del resultado' }).innerText(), /No se pudo reproducir/);
   evidence.checks.push('A changed view rejects delayed opening; media errors send a failure receipt instead of confirming success');
+  badMedia = false;
+  await page.locator('[data-result-number]').getByRole('button', { name: 'Ver video', exact: true }).click();
+  await page.waitForFunction(() => document.querySelector('[data-result-video]')?.readyState >= 2);
+  await send('Pausá', 'pause'); const resultStart = await videoState();
+  await send('Avanzá 20 minutos', 'seek-forward');
+  const resultEnd = await videoState(); assert(resultEnd.paused);
+  assert.equal(evidence.receipts.at(-1).status, 'applied');
+  assert(Math.abs(resultEnd.at - resultStart.at - 1200) < .1);
+  assert.equal(evidence.queries.at(-1).selected_uid, 'e'.repeat(24));
+  evidence.checks.push('Long seeks also work from a selected search result, without losing its card');
   assert.deepEqual(evidence.errors, []);
   await writeFile(`${output}/result.json`, JSON.stringify(evidence, null, 2));
   console.log(JSON.stringify({ checks: evidence.checks, errors: evidence.errors, receipts: evidence.receipts.length }));
