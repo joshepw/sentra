@@ -3,7 +3,7 @@
 import { useEffect, useImperativeHandle, useRef, useState, type Ref } from "react";
 import { containedVideo } from "@/lib/live-detections";
 import { vehicleName } from "@/lib/edge-replay";
-import { historyFrameAt, historyTime, type HistoryFrame, type HistoryItem, type Playback } from "@/lib/history-detections";
+import { historyFrameAt, historyTime, type HistoryFrame, type HistoryItem, type Playback, type ToolResult } from "@/lib/history-detections";
 import type { MediaCommand } from "@/lib/viewer-actions";
 import { VideoLoading } from "@/components/sentra/assistant-feedback";
 
@@ -20,6 +20,7 @@ export function HistoryPlayer({ playback, title, item, onClose, onExpired, onRev
   const [segments, setSegments] = useState<Segment[]>([]), [segment, setSegment] = useState<Segment | null>(null);
   const [initial, setInitial] = useState(playback.source === "camera_time" ? playback.at : playback.at - 4), [error, setError] = useState("");
   const [frames, setFrames] = useState<HistoryFrame[]>([]), [focus, setFocus] = useState<{ local_id: number; session: string } | null>(null);
+  const [analysis, setAnalysis] = useState(playback.run_id);
   const [position, setPosition] = useState(playback.at), [reviewing, setReviewing] = useState(false);
   const [needsPlay, setNeedsPlay] = useState(false);
   const [buffering, setBuffering] = useState(true);
@@ -27,21 +28,49 @@ export function HistoryPlayer({ playback, title, item, onClose, onExpired, onRev
   const wantPlaying = useRef(true), commandId = useRef(0);
   const loadFailure = useRef<string | null>(null);
   const loadedPlayback = useRef<Playback | null>(null);
-  useEffect(() => () => { commandId.current++; }, []);
+  const seekAbort = useRef<AbortController | null>(null);
+  useEffect(() => () => { commandId.current++; seekAbort.current?.abort(); }, []);
   const control = async (command: MediaCommand) => {
     const element = video.current;
     if (!element || !segment || element.readyState < 1) throw new Error("no_video");
     const id = ++commandId.current;
+    seekAbort.current?.abort();
     if (command.operation === "pause") { wantPlaying.current = false; element.pause(); setPaused(true); return; }
     if (command.operation === "play") {
       try { await element.play(); wantPlaying.current = true; setPaused(false); }
       catch { throw new Error("playback_blocked"); }
       return;
     }
+    if (!Number.isSafeInteger(command.seconds) || !command.seconds || Math.abs(command.seconds) > 31 * 86400) throw new Error("unavailable_time");
     const target = segment.started + element.currentTime + command.seconds;
-    const row = segments.find(candidate => candidate.started <= target && target < candidate.ended);
-    if (!row) throw new Error("unavailable_time");
-    wantPlaying.current = !element.paused;
+    const playing = !element.paused;
+    let row = segments.find(candidate => candidate.started <= target && target < candidate.ended);
+    if (!row) {
+      const abort = new AbortController(); seekAbort.current = abort;
+      const timeout = setTimeout(() => abort.abort(), 10000);
+      try {
+        const params = new URLSearchParams({ camera: playback.camera, at: String(target) });
+        const response = await fetch(`/edge/api/history/recording?${params}`, { cache: "no-store", signal: abort.signal });
+        if (response.status === 401) { onExpired(); throw new Error("no_video"); }
+        if (!response.ok) throw new Error("playback_blocked");
+        const resolved: ToolResult = await response.json(), destination = resolved.playback;
+        if (!resolved.available || !destination || destination.camera !== playback.camera
+          || Math.abs(destination.at - target) > .00001 || !destination.segment_id) throw new Error("unavailable_time");
+        const window = new URLSearchParams({ camera: playback.camera, start: String(target - 70), end: String(target + 120) });
+        const archive = await fetch(`/edge/api/live/archive?${window}`, { cache: "no-store", signal: abort.signal });
+        if (archive.status === 401) { onExpired(); throw new Error("no_video"); }
+        if (!archive.ok) throw new Error("playback_blocked");
+        const data: { segments: Segment[] } = await archive.json();
+        row = data.segments.find(candidate => candidate.id === destination.segment_id && candidate.started <= target && target < candidate.ended);
+        if (!row) throw new Error("unavailable_time");
+        if (id !== commandId.current || abort.signal.aborted || !video.current) throw new Error("no_video");
+        setSegments(data.segments); setAnalysis(destination.run_id);
+      } catch (reason) {
+        if (abort.signal.aborted) throw new Error(id !== commandId.current ? "no_video" : "playback_blocked");
+        throw reason;
+      } finally { clearTimeout(timeout); }
+    }
+    wantPlaying.current = playing; setPaused(!playing);
     setError("");
     if (row.id === segment.id) element.currentTime = target - row.started;
     else { setInitial(target); setFrames([]); setFocus(null); setSegment(row); }
@@ -74,7 +103,7 @@ export function HistoryPlayer({ playback, title, item, onClose, onExpired, onRev
   const manualControl = async (command: MediaCommand) => {
     setControlling(true);
     try { await control(command); }
-    catch (reason) { setError((reason as Error).message === "unavailable_time" ? "Ese instante queda fuera del video disponible." : "No se pudo completar el control del video."); }
+    catch (reason) { setError((reason as Error).message === "unavailable_time" ? "No hay grabación disponible para ese instante." : "No se pudo completar el control del video."); }
     finally { setControlling(false); }
   };
   useEffect(() => {
@@ -97,7 +126,7 @@ export function HistoryPlayer({ playback, title, item, onClose, onExpired, onRev
         if (!row) { loadFailure.current = "unavailable_time"; throw new Error("No hay video guardado para este instante."); }
         if (!abort.signal.aborted) {
           setError("");
-          setSegments(data.segments); setSegment(row); setInitial(Math.max(row.started, lead));
+          setSegments(data.segments); setSegment(row); setAnalysis(playback.run_id); setInitial(Math.max(row.started, lead));
           // A repeated request for the same camera/time can reuse this player.
           if (playback.source === "camera_time") {
             wantPlaying.current = true; setPaused(false);
@@ -113,13 +142,13 @@ export function HistoryPlayer({ playback, title, item, onClose, onExpired, onRev
     void load(); return () => abort.abort();
   }, [playback, item?.kind, item?.details?.trajectory, onExpired]);
   useEffect(() => {
-    const runId = playback.run_id;
+    const runId = analysis;
     if (!segment || !runId) return;
     const abort = new AbortController();
     const load = async () => {
       try {
         const params = new URLSearchParams({ run_id: runId, camera: playback.camera, start: String(segment.started), end: String(segment.ended) });
-        if (playback.track_uid) params.set("uid", playback.track_uid);
+        if (playback.track_uid && runId === playback.run_id) params.set("uid", playback.track_uid);
         const response = await fetch(`/edge/api/history/frames?${params}`, { cache: "no-store", signal: abort.signal });
         if (response.status === 401) { onExpired(); return; }
         if (!response.ok) throw new Error("No se pudieron cargar las cajas de este tramo.");
@@ -128,7 +157,7 @@ export function HistoryPlayer({ playback, title, item, onClose, onExpired, onRev
       } catch (reason) { if (!abort.signal.aborted) setError((reason as Error).message); }
     };
     void load(); return () => abort.abort();
-  }, [segment, playback, onExpired]);
+  }, [segment, playback, analysis, onExpired]);
   useEffect(() => {
     const element = video.current, layer = canvas.current, label = caption.current;
     if (!element || !layer || !label || !segment) return;
@@ -141,7 +170,7 @@ export function HistoryPlayer({ playback, title, item, onClose, onExpired, onRev
       context.resetTransform(); context.clearRect(0, 0, layer.width, layer.height); context.scale(ratio, ratio);
       layer.dataset.boxes = "0";
       if (!boxes || element.seeking || element.readyState < 2) { label.textContent = boxes ? "Sincronizando…" : "Cajas ocultas"; return; }
-      const at = segment.started + mediaTime, frame = playback.run_id ? historyFrameAt(frames, at) : null;
+      const at = segment.started + mediaTime, frame = analysis ? historyFrameAt(frames, at) : null;
       if (!frame) { label.textContent = "Sin detecciones indexadas para este instante"; return; }
       const area = containedVideo(rect.width, rect.height, element.videoWidth, element.videoHeight);
       if (!area || frame.width !== element.videoWidth || frame.height !== element.videoHeight) return;
@@ -156,13 +185,15 @@ export function HistoryPlayer({ playback, title, item, onClose, onExpired, onRev
         context.fillStyle = "#00150deb"; context.fillRect(x, labelY, context.measureText(text).width + 8, 17);
         context.fillStyle = selected ? "#ffdb68" : "#a8fbd0"; context.fillText(text, x + 4, labelY + 2);
       }
-      const band = item?.details?.stop_band;
+      const trajectory = item?.details?.trajectory;
+      const inIncident = trajectory?.length && trajectory[0][0] <= segment.ended && trajectory[trajectory.length - 1][0] >= segment.started;
+      const band = inIncident ? item?.details?.stop_band : undefined;
       if (band?.length === 4) {
         context.strokeStyle = "#ffbd59"; context.setLineDash([5, 4]);
         context.strokeRect(area.x + band[0] / 1280 * area.width, area.y + band[1] / 720 * area.height, (band[2] - band[0]) / 1280 * area.width, (band[3] - band[1]) / 720 * area.height);
         context.setLineDash([]);
       }
-      const trail = item?.details?.trajectory?.filter(p => p[0] <= at);
+      const trail = inIncident ? trajectory?.filter(p => p[0] <= at) : undefined;
       if (trail && trail.length > 1) {
         context.strokeStyle = "#ffdb68"; context.lineWidth = 2; context.beginPath();
         trail.forEach((point, index) => { const x = area.x + point[1] * area.width, y = area.y + point[2] * area.height; if (index === 0) context.moveTo(x, y); else context.lineTo(x, y); }); context.stroke();
@@ -179,7 +210,7 @@ export function HistoryPlayer({ playback, title, item, onClose, onExpired, onRev
     for (const event of ["seeking", "seeked", "pause", "loadeddata"]) element.addEventListener(event, redraw);
     draw();
     return () => { stopped = true; resize.disconnect(); if (callback) element.cancelVideoFrameCallback(callback); if (animation) cancelAnimationFrame(animation); for (const event of ["seeking", "seeked", "pause", "loadeddata"]) element.removeEventListener(event, redraw); };
-  }, [frames, focus, segment, boxes, item, playback.run_id]);
+  }, [frames, focus, segment, boxes, item, analysis]);
   const advance = () => {
     if (!segment) return;
     const next = segments[segments.findIndex(row => row.id === segment.id) + 1];

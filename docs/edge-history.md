@@ -42,7 +42,7 @@ session subject. No new browser-visible credential is introduced.
 
 Relevant backend routes:
 
-- `GET /api/history/coverage`, `/search`, `/incidents`, `/similar`, `/frames`
+- `GET /api/history/coverage`, `/search`, `/incidents`, `/similar`, `/frames`, `/recording`
 - `POST /api/history/chat`; `GET /api/history/chat/{job}`
 - `POST /api/history/mcp` for JSON-RPC initialize/tools/list/tools/call
 - `POST /api/history/review` for an explicit reviewer decision
@@ -75,7 +75,8 @@ browser instance as well as the authenticated user.
 
 The assistant can select a camera, show all cameras, toggle boxes, close the result
 player, open a numbered card, move to the next/previous result, pause/resume and
-seek up to 120 seconds in either direction. These are validated browser actions. A job pauses
+seek by seconds, minutes or hours in either direction (up to 31 days per command).
+These are validated browser actions. A job pauses
 at `waiting_action`; the client checks the view revision, applies the action, then
 posts `chat/{id}/applied`. Text and speech confirm only after that receipt. A
 changed view rejects the action. Existing read-only MCP tools remain available;
@@ -147,6 +148,15 @@ requested segment has decoded and the seek has finished at the requested instant
 without the pre-roll used by search results. Loading failures and intervening view
 changes return failure/stale receipts. Pause, play and relative seek also work
 on directly opened recordings; next/previous still refer to search results.
+
+Relative seeks use the actual video position when the action is applied. A request
+such as “20 minutos para enfrente” becomes `controlar_video` with `seconds: 1200`.
+When the destination is outside the loaded segments, the player calls the protected
+`GET /api/history/recording?camera=…&at=…` resolver, then fetches a small archive
+window around that timestamp. It preserves fractional seconds and pause/play,
+loads the destination's optional analysis, and waits for the seek before confirming.
+No intervening 20-minute download is needed. Missing footage or failed lookups keep
+the previous recording; a closed or changed player cancels the pending seek.
 
 `tests/camera-time.browser.mjs` verifies exact opening, receipt timing, repeated
 requests, controls across segments, missing footage, preserved results, stale
