@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {frameAt, ReplayClock, vehiclesIn, vehicleName, colorName, isTruck} from '../src/lib/edge-replay.ts';
+import {frameAt, ReplayClock, vehiclesIn, vehicleName, colorName, isTruck, isTypeOnly} from '../src/lib/edge-replay.ts';
 const track=(id,attributes=null,box=[1,2,5,8])=>({native_id:id,native_class:2,visible:true,xyxy:box,attributes});
 const frame=(time,tracks=[],camera='crowne')=>({camera,source_seconds:time,analysed_fps_5s:9,native_tracks:tracks});
 
@@ -48,4 +48,17 @@ test('camera histories remain independent; context and duplicate frames do not p
  const frames=[frame(0,[track(2),{...track(77),native_class:0}]),frame(.2,[track(2,{type:'camioneta',color:'blanco',completed_s:.1},[0,0,30,30])]),frame(.4,[track(2)])];
  const vehicles=vehiclesIn(frames);assert.equal(vehicles.length,1);
  assert.deepEqual(vehicles[0],{id:2,time:.2,box:[0,0,30,30],type:'Camioneta',color:'Blanco'});
+});
+
+
+test('buses omit color while busitos keep their independently labeled color',()=>{
+ const t={...track(1,{type:'bus',color:'amarillo',completed_s:1}),native_class:5};
+ assert.equal(colorName(t),'');
+ assert.equal(vehicleName('bus','amarillo',5),'Bus');
+ assert.equal(vehicleName(undefined,'amarillo',5),'Bus');
+ assert.equal(vehiclesIn([frame(1,[t])])[0].color,'');
+ assert.equal(vehicleName('busito','azul',5),'Busito · Azul');
+ assert.equal(isTypeOnly('Bus'),true);
+ assert.equal(isTypeOnly('autobús'),true);
+ assert.equal(isTypeOnly('busito',5),false);
 });

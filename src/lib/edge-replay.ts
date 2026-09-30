@@ -23,11 +23,15 @@ export function isTruck(type?: string | null, nativeClass?: number) {
   const key = (type ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim().replace(/ /g, "_");
   return ["camion", "camiones", "camion_pequeno", "camion_grande", "camioncito", "camioncitos"].includes(key) || (!key && nativeClass === 7);
 }
+export function isTypeOnly(type?: string | null, nativeClass?: number) {
+  const key = (type ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
+  return isTruck(type, nativeClass) || ["bus", "buses", "autobus", "autobuses"].includes(key) || (!key && nativeClass === 5);
+}
 export function vehicleName(type?: string | null, color?: string | null, nativeClass?: number, fallback = "Vehículo") {
   const name = type ? TYPE[type] ?? type : NATIVE[nativeClass ?? -1] ?? fallback;
-  return color && !isTruck(type, nativeClass) ? `${name} · ${COLOR[color] ?? color}` : name;
+  return color && !isTypeOnly(type, nativeClass) ? `${name} · ${COLOR[color] ?? color}` : name;
 }
-export const colorName = (track: Track) => isTruck(track.attributes?.type, track.native_class) ? "" : track.attributes ? (COLOR[track.attributes.color] ?? track.attributes.color) : "Por clasificar";
+export const colorName = (track: Track) => isTypeOnly(track.attributes?.type, track.native_class) ? "" : track.attributes ? (COLOR[track.attributes.color] ?? track.attributes.color) : "Por clasificar";
 export const clock = (seconds: number) => {
   const t = Math.max(0, Math.min(90, seconds));
   return `${String(Math.floor(t / 60)).padStart(2, "0")}:${String(Math.floor(t % 60)).padStart(2, "0")}`;

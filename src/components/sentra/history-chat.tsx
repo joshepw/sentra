@@ -10,7 +10,7 @@ import { CorridorMap } from "@/components/sentra/corridor-map";
 import { AssistantProgress } from "@/components/sentra/assistant-feedback";
 import type { AssistantVoice } from "@/components/sentra/assistant-voice";
 import { VoiceRecorder } from "@/components/sentra/voice-recorder";
-import { COLOR, TYPE, isTruck, vehicleName } from "@/lib/edge-replay";
+import { COLOR, TYPE, isTypeOnly, vehicleName } from "@/lib/edge-replay";
 import { historyRange, historyTime, type Coverage, type HistoryItem, type Playback, type ToolResult } from "@/lib/history-detections";
 import type { ViewerState, ViewerAction, ViewChanges, ActionFailure } from "@/lib/viewer-actions";
 
@@ -208,9 +208,11 @@ export function HistoryChat({ csrf, onExpired, viewer, onView, cameras, children
   const selectedIndex = result?.items?.findIndex(item => item.uid === selection?.item?.uid) ?? -1;
   const cameraTitle = (key: string) => cameras.find(camera => camera.key === key)?.title ?? key;
   const filters = result?.filters;
+  const searchHours = result?.search_hours;
+  const outsideHours = searchHours?.has_daytime_overlap === false;
   const criteria = filters ? [
     filters.type === "camion" ? "Camiones" : filters.type === "persona" ? "Personas" : filters.type === "auto" || filters.type === "carro" ? "Carro" : filters.type ? TYPE[String(filters.type)] ?? String(filters.type) : !filters.kind && result?.counting !== "candidate_events" ? "Vehículos" : "",
-    filters.color && !isTruck(String(filters.type ?? "")) ? `${filters.type === "persona" ? "Camisa: " : ""}${COLOR[String(filters.color)] ?? filters.color}` : "",
+    filters.color && !isTypeOnly(String(filters.type ?? "")) ? `${filters.type === "persona" ? "Camisa: " : ""}${COLOR[String(filters.color)] ?? filters.color}` : "",
     filters.kind ? filters.kind === "uturn" ? "Vueltas en U" : "Cruces en rojo" : "",
     filters.review ? filters.review === "confirmed" ? "Confirmadas" : filters.review === "dismissed" ? "Descartadas" : "Pendientes" : "",
     filters.camera ? cameraTitle(String(filters.camera)) : "Todas las cámaras",
@@ -228,11 +230,12 @@ export function HistoryChat({ csrf, onExpired, viewer, onView, cameras, children
       <aside aria-label="Resultados de la consulta" className="flex min-h-0 min-w-0 flex-col overflow-hidden rounded-xl border border-[var(--border)] bg-[#0c1b16]">
         <div className="shrink-0 border-b border-[var(--border)] px-3 py-1 lg:py-2" data-result-context>
           <div className="flex items-center justify-between gap-2">
-          <h2 className="text-sm">{result?.total !== undefined ? `${result.total} ${result.counting === "candidate_events" ? result.total === 1 ? "incidencia" : "incidencias" : result.total === 1 ? "aparición" : "apariciones"}` : "Resultados"}</h2>
+          <h2 className="text-sm">{outsideHours ? "Fuera del horario de búsqueda" : result?.total !== undefined ? `${result.total} ${result.counting === "candidate_events" ? result.total === 1 ? "incidencia" : "incidencias" : result.total === 1 ? "aparición" : "apariciones"}` : "Resultados"}</h2>
           {selectedIndex >= 0 && <div className="flex items-center gap-2"><span className="text-xs text-accent">{selectedIndex + 1} / {result?.total ?? result?.items?.length}</span><button className={button} aria-label="Resultado anterior" disabled={busy || paging || selectedIndex === 0} onClick={() => void manualNavigate("previous")}>←</button><button className={button} aria-label="Siguiente resultado" disabled={busy || paging || (selectedIndex === (result?.items?.length ?? 0) - 1 && !result?.next_cursor)} onClick={() => void manualNavigate("next")}>→</button></div>}
           </div>
           {criteria && <p className="mt-1 text-[11px] leading-snug text-text-muted">{criteria}</p>}
           {range && <p className="mt-0.5 text-[11px] leading-snug text-text-faint">{range}</p>}
+          {searchHours && <p className="mt-0.5 text-[11px] leading-snug text-text-muted">Solo {searchHours.start}–{searchHours.end} HN, cada día</p>}
         </div>
         {busy && <div className="shrink-0 px-3 pt-2 lg:pt-3"><AssistantProgress phase={phase} /></div>}
         <div className="min-h-0 flex-1 space-y-2 overflow-y-auto overscroll-contain p-2 lg:p-3" data-result-list>
@@ -240,7 +243,7 @@ export function HistoryChat({ csrf, onExpired, viewer, onView, cameras, children
           {result?.coverage && <p className="hidden text-[11px] leading-relaxed text-text-faint lg:block">{result.counting !== "candidate_events" && "Una misma unidad puede aparecer más de una vez. "}{result.coverage.runs.some(run => run.kind === "archive" && run.status !== "complete") ? "Cobertura parcial: solo los momentos analizados." : "Resultados de los momentos analizados."}</p>}
           {result?.color_notice && <p className="text-xs leading-relaxed text-text-faint">{result.color_notice}</p>}
           {(result?.note || result?.reason) && <p className="text-xs leading-relaxed text-warning">{result.note ?? result.reason}</p>}
-          {result?.items?.length === 0 && <p className="py-3 text-sm text-text-faint">Sin coincidencias en el historial procesado para esos filtros.</p>}
+          {result?.items?.length === 0 && <p className="py-3 text-sm text-text-faint">{outsideHours ? "Las búsquedas de vehículos por tipo o color están disponibles de 7 a. m. a 6 p. m., hora de Honduras." : "Sin coincidencias en el historial procesado para esos filtros."}</p>}
           {result?.items?.map((item, index) => <article key={item.uid} data-result-number={index + 1} aria-current={selection?.item?.uid === item.uid ? "true" : undefined} className={`flex gap-3 rounded-lg border p-2 lg:p-3 ${selection?.item?.uid === item.uid ? "border-accent/60 bg-[#123a2a]/50" : "border-[var(--border)] bg-[#09150f]"}`}>
             {item.thumbnail_url && <img src={item.thumbnail_url} alt={vehicleName(item.type, item.color, item.class_id)} loading="lazy" className="h-16 w-20 shrink-0 rounded-md object-contain" />}
             <div className="min-w-0 flex-1"><p className="text-sm text-text"><span className="mr-1 font-mono text-accent">{index + 1}.</span>{item.kind ? item.kind === "uturn" ? "Posible vuelta en U" : "Posible cruce en rojo" : vehicleName(item.type, item.color ?? "Color sin determinar", item.class_id)}</p><p className="mt-1 text-xs text-text-faint">{item.title}</p><p className="mt-1 text-xs text-text-faint">{historyTime(item.at ?? item.best_time ?? item.first ?? item.playback.at)}</p>{item.kind && <p className="mt-1 text-xs text-warning">{item.review === "confirmed" ? "Confirmada en revisión" : item.review === "dismissed" ? "Descartada" : "Pendiente de revisión"}</p>}{item.similarity !== undefined && <p className="mt-1 text-xs text-warning">Similitud visual: {item.similarity.toFixed(3)}</p>}<div className="mt-2 flex flex-wrap gap-2"><button className={button} onClick={() => { choose({ playback: item.playback, item }); onView({ camera: item.camera, all: false }); }}>Ver video</button>{!item.kind && <button className={button} disabled={paging || busy} onClick={() => void compare(item.uid)}>Otras cámaras</button>}</div></div>
