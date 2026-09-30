@@ -23,6 +23,7 @@ export type ToolResult = {
   filters?: Record<string, string | number>; counting?: string; coverage?: Coverage;
   playback?: Playback; runs?: Coverage["runs"]; note?: string; color_notice?: string; reason?: string; identity_confirmed?: boolean;
   cameras?: { camera: string; title: string; receiving: boolean }[];
+  search_hours?: { start: string; end: string; timezone: string; has_daytime_overlap: boolean };
 };
 
 function historyInstant(value: number | string | null | undefined) {
