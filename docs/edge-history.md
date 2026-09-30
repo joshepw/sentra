@@ -163,3 +163,45 @@ requests, controls across segments, missing footage, preserved results, stale
 actions, media failure and mobile sizing. APIs and MP4 ranges use local fixtures,
 including when checking the published bundle. The matching backend tests cover
 Honduras midnight, dates, gaps, optional detections and authenticated MCP access.
+
+
+## Playback diagnostics (2026-09-30)
+
+The player waits up to 45 seconds for decoded media at the requested instant,
+including fragmented originals whose metadata takes longer than ten seconds to
+load. The target lookup remains bounded to ten seconds. Browser receipts carry
+optional, strictly validated diagnostics: camera, target/current timestamp,
+segment ID, phase, elapsed time, HTTP status and native media state/error codes.
+Timeouts return playback_timeout rather than confirming a completed seek.
+Existing clients may omit diagnostics. Session ownership, CSRF and the 90-second
+receipt expiry still apply. The matching backend must be installed before this frontend.
+
+The existing persistent systemd journal now receives one JSON event per HTTP
+request (path without query, status, actual/expected bytes and duration), and
+chat_started/chat_phase/chat_tool/chat_action/chat_receipt/chat_error events
+correlated by job_id. Error records include type and frame locations, without
+exception messages or locals. Browser diagnostics describe the client report;
+they never authorize a different action. Do not treat a missing receipt as
+success or assume that older plain request logs contain these details.
+
+Read recent events with:
+
+```sh
+journalctl --user -u senttra-live.service --since '30 minutes ago' -o cat
+```
+
+Filter a known job ID to follow one request. Journald owns disk persistence and
+rotation; no separate log file or retention guarantee is introduced. Prompts,
+transcripts, audio, cookies, tokens and arbitrary request bodies are excluded.
+Jobs and conversational context remain in memory (up to 30 minutes, max 32 jobs),
+and restart clears them. This is operational telemetry, not a conversation archive.
+
+The browser regression can read a representative original without changing it:
+
+```sh
+EDGE_TEST_SLOW_VIDEO=/path/to/fragmented-original.mp4 node tests/camera-time.browser.mjs
+```
+
+It uses an ephemeral loopback gateway with native HTTP range streaming (64 KiB
+every 140 ms) and isolated API fixtures. Set EDGE_TEST_ORIGIN to test a published
+bundle through the same gateway; no production camera API writes are made.

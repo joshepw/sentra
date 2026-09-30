@@ -1,10 +1,13 @@
 import { createRequire } from 'node:module';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import assert from 'node:assert/strict';
+import { slowRecordingGateway } from './slow-recording-gateway.mjs';
 
 const require = createRequire(import.meta.url);
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE ?? '/home/paal/tmp-codex-test/worktrees/wheel-dev-guide/node_modules/playwright');
-const origin = process.env.EDGE_TEST_ORIGIN ?? 'http://127.0.0.1:8782';
+const upstream = process.env.EDGE_TEST_ORIGIN ?? 'http://127.0.0.1:8782';
+const gateway = process.env.EDGE_TEST_SLOW_VIDEO ? await slowRecordingGateway(upstream, process.env.EDGE_TEST_SLOW_VIDEO) : null;
+const origin = gateway?.origin ?? upstream;
 const output = process.env.EDGE_EVIDENCE_DIR ?? 'test-artifacts/camera-time';
 const videoPath = process.env.EDGE_TEST_VIDEO ?? 'test-artifacts/edge-layout/fixture.mp4';
 const videoBytes = await readFile(videoPath);
@@ -15,6 +18,7 @@ const segments = [[-12, 'b'], [-4, 'a'], [4, 'c'], [20, 'd'], [1196, 'f'], [3596
   id: id.repeat(24), camera: 'little', started: at + offset, ended: at + offset + 8,
   duration: 8, state: 'ok', url: `/fixture-video.mp4?segment=${id}`,
 }));
+if (gateway) Object.assign(segments.find(row => row.id === 'f'.repeat(24)), { url: '/slow-recording.mp4', duration: 60.499822, ended: at + 1196 + 60.499822 });
 const playback = { camera: 'little', at, run_id: null, source: 'camera_time', segment_id: 'a'.repeat(24) };
 const evidence = { fixture: true, errors: [], checks: [], queries: [], receipts: [], frames: 0, frameRuns: [], destinations: [] };
 let page, mode = 'search', job, count = 0, archiveDelay = 0, badMedia = false, completed = 0;
@@ -146,6 +150,12 @@ try {
   await send('Movete 20 minutos para enfrente', 'seek-forward');
   let afterLong = await videoState(); assert(afterLong.paused); assert.equal(afterLong.segment, 'f'.repeat(24));
   assert.equal(evidence.receipts.at(-1).status, 'applied');
+  if (gateway) {
+    const diagnostic = evidence.receipts.at(-1).diagnostics;
+    assert(diagnostic.elapsed_ms > 10000, 'Slow recording must exceed the previous 10-second limit');
+    assert.equal(diagnostic.stage, 'ready'); assert.equal(diagnostic.segment_id, 'f'.repeat(24));
+    assert.equal(diagnostic.seeking, false); assert(diagnostic.ready_state >= 2);
+  }
   assert(Math.abs(afterLong.at - beforeLong.at - 1200) < .1);
   await waitUntil(() => evidence.frameRuns.some(row => row.run_id === 'distant-run'));
   assert(evidence.frameRuns.filter(row => row.run_id === 'distant-run').every(row => !row.uid));
@@ -161,6 +171,8 @@ try {
   assert.equal(evidence.receipts.at(-1).reason, 'unavailable_time'); assert.deepEqual(await videoState(), beforeMissing);
   await send('Avanzá 20 minutos', 'seek-error');
   assert.equal(evidence.receipts.at(-1).reason, 'playback_blocked'); assert.deepEqual(await videoState(), beforeMissing);
+  assert.equal(evidence.receipts.at(-1).diagnostics.http_status, 503);
+  assert.equal(evidence.receipts.at(-1).diagnostics.failure, 'http_error');
   const beforeDelayed = evidence.receipts.length;
   await send('Avanzá 20 minutos', 'seek-delayed', false);
   await page.waitForTimeout(150); await page.getByRole('button', { name: 'Cerrar video', exact: true }).click();
@@ -190,6 +202,8 @@ try {
   await send('Little Caesars a las 7 y 24 segundos', 'bad-media');
   assert.equal(evidence.receipts.at(-1).status, 'failed');
   assert.equal(evidence.receipts.at(-1).reason, 'recording_unavailable');
+  assert.equal(evidence.receipts.at(-1).diagnostics.failure, 'media_error');
+  assert(evidence.receipts.at(-1).diagnostics.media_error > 0);
   assert.match(await page.getByRole('region', { name: 'Video del resultado' }).innerText(), /No se pudo reproducir/);
   evidence.checks.push('A changed view rejects delayed opening; media errors send a failure receipt instead of confirming success');
   badMedia = false;
@@ -209,4 +223,4 @@ try {
   await page?.screenshot({ path: `${output}/failure.png` }).catch(() => {});
   await writeFile(`${output}/failure.json`, JSON.stringify({ ...evidence, error: String(error) }, null, 2));
   throw error;
-} finally { await browser.close(); }
+} finally { await browser.close(); await gateway?.close(); }

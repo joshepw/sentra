@@ -12,7 +12,7 @@ import type { AssistantVoice } from "@/components/sentra/assistant-voice";
 import { VoiceRecorder } from "@/components/sentra/voice-recorder";
 import { COLOR, TYPE, isTypeOnly, vehicleName } from "@/lib/edge-replay";
 import { historyRange, historyTime, sameCameraPlayback, type Coverage, type HistoryItem, type Playback, type ToolResult } from "@/lib/history-detections";
-import type { ViewerState, ViewerAction, ViewChanges, ActionFailure } from "@/lib/viewer-actions";
+import type { ViewerState, ViewerAction, ViewChanges, ActionFailure, PlaybackDiagnostics } from "@/lib/viewer-actions";
 
 type Job = { id: string; status: string; phase: string; transcript?: string; reply?: string; error?: string; voice_error?: string; audio_url?: string; tool?: string; result?: ToolResult; action?: ViewerAction };
 const CameraMap = memo(CorridorMap);
@@ -89,7 +89,7 @@ export function HistoryChat({ csrf, onExpired, viewer, onView, cameras, children
       // eslint-disable-next-line react-hooks/purity -- Event-driven polling deadline.
       const deadline = performance.now() + 5 * 60 * 1000;
       let resultReceived = false;
-      let actionReceipt: { status: "applied" | "stale" | "failed"; reason?: ActionFailure } | null = null;
+      let actionReceipt: { status: "applied" | "stale" | "failed"; reason?: ActionFailure; diagnostics?: PlaybackDiagnostics } | null = null;
       const receive = (value: ToolResult) => {
         if (revision() !== expectedRevision) throw new Error("La vista cambió durante la consulta. Repetila con la selección actual.");
         if (value.recording_request && value.available === false) setError(value.note || "No hay grabación para ese instante.");
@@ -107,6 +107,7 @@ export function HistoryChat({ csrf, onExpired, viewer, onView, cameras, children
             actionReceipt = { status: "stale" };
             if (job.action.revision === revision()) {
               let appliedRevision = job.action.revision;
+              let activePlayer: PlayerControl | null = null;
               try {
                 const action = job.action;
                 if (action.kind === "media" || action.kind === "navigate") {
@@ -116,7 +117,8 @@ export function HistoryChat({ csrf, onExpired, viewer, onView, cameras, children
                   if (action.kind === "navigate") await navigate(action.direction);
                   else {
                     if (!player.current) throw new Error("no_video");
-                    await player.current.control(action);
+                    activePlayer = player.current;
+                    await activePlayer.control(action);
                     if (action.revision !== revision()) throw new Error("stale");
                   }
                 } else if (action.kind === "open_archive") {
@@ -126,7 +128,8 @@ export function HistoryChat({ csrf, onExpired, viewer, onView, cameras, children
                   });
                   appliedRevision = revision();
                   if (!player.current) throw new Error("no_video");
-                  await player.current.ready();
+                  activePlayer = player.current;
+                  await activePlayer.ready();
                   if (appliedRevision !== revision()) throw new Error("stale");
                 } else flushSync(() => {
                   if (action.kind === "view") {
@@ -142,10 +145,11 @@ export function HistoryChat({ csrf, onExpired, viewer, onView, cameras, children
               } catch (reason) {
                 const code = (reason as Error).message;
                 actionReceipt = code === "stale" || appliedRevision !== revision() ? { status: "stale" } : {
-                  status: "failed", ...(job.action.kind === "open_archive" ? { reason: "recording_unavailable" as const }
+                  status: "failed", ...(code === "playback_timeout" ? { reason: "playback_timeout" as const } : job.action.kind === "open_archive" ? { reason: "recording_unavailable" as const }
                     : ["no_more_results", "no_video", "unavailable_time", "playback_blocked"].includes(code) ? { reason: code as ActionFailure } : {}),
                 };
               }
+              if (activePlayer) actionReceipt.diagnostics = activePlayer.diagnostics();
             }
           }
           try { job = await post(`chat/${job.id}/applied`, actionReceipt, controller.signal); continue; }

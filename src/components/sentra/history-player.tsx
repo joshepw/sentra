@@ -4,12 +4,13 @@ import { useEffect, useImperativeHandle, useRef, useState, type Ref } from "reac
 import { containedVideo } from "@/lib/live-detections";
 import { vehicleName } from "@/lib/edge-replay";
 import { historyFrameAt, historyTime, type HistoryFrame, type HistoryItem, type Playback, type ToolResult } from "@/lib/history-detections";
-import type { MediaCommand } from "@/lib/viewer-actions";
+import type { MediaCommand, PlaybackDiagnostics } from "@/lib/viewer-actions";
 import { VideoLoading } from "@/components/sentra/assistant-feedback";
 
 type Segment = { id: string; started: number; ended: number; url: string; state: string };
 const button = "cursor-pointer rounded-lg border border-[var(--border)] px-3 py-2 text-xs hover:border-accent disabled:opacity-40";
-export type PlayerControl = { control: (command: MediaCommand) => Promise<void>; ready: () => Promise<void> };
+const MEDIA_WAIT_MS = 45000;
+export type PlayerControl = { control: (command: MediaCommand) => Promise<void>; ready: () => Promise<void>; diagnostics: () => PlaybackDiagnostics };
 
 export function HistoryPlayer({ playback, title, item, onClose, onExpired, onReview, boxes, onBoxes, controlRef }: {
   playback: Playback; title?: string; item?: HistoryItem; onClose: () => void; onExpired: () => void;
@@ -29,20 +30,40 @@ export function HistoryPlayer({ playback, title, item, onClose, onExpired, onRev
   const loadFailure = useRef<string | null>(null);
   const loadedPlayback = useRef<Playback | null>(null);
   const seekAbort = useRef<AbortController | null>(null);
+  const trace = useRef<Partial<PlaybackDiagnostics>>({ stage: "loading" }), began = useRef(0);
+  const begin = (stage: PlaybackDiagnostics["stage"], target?: number) => {
+    began.current = performance.now(); trace.current = { stage, ...(target === undefined ? {} : { target_at: target }) };
+  };
+  const diagnostics = (): PlaybackDiagnostics => {
+    const element = video.current;
+    return { camera: playback.camera, stage: "loading", ...trace.current,
+      elapsed_ms: Math.min(300000, Math.max(0, Math.round(performance.now() - began.current))),
+      ...(element ? { segment_id: element.dataset.segment, current_time: element.currentTime,
+        at: Number(element.dataset.started) + element.currentTime, ready_state: element.readyState,
+        network_state: element.networkState, media_error: element.error?.code ?? 0, paused: element.paused, seeking: element.seeking,
+        ...(Number.isFinite(element.duration) ? { duration: element.duration } : {}),
+      } : {}),
+    };
+  };
+  function fail(code: string, failure: PlaybackDiagnostics["failure"]): never {
+    trace.current.failure = failure; throw new Error(code);
+  }
   useEffect(() => () => { commandId.current++; seekAbort.current?.abort(); }, []);
   const control = async (command: MediaCommand) => {
+    begin(command.operation === "seek" ? "lookup" : command.operation);
     const element = video.current;
-    if (!element || !segment || element.readyState < 1) throw new Error("no_video");
+    if (!element || !segment || element.readyState < 1) return fail("no_video", "no_video");
     const id = ++commandId.current;
     seekAbort.current?.abort();
     if (command.operation === "pause") { wantPlaying.current = false; element.pause(); setPaused(true); return; }
     if (command.operation === "play") {
       try { await element.play(); wantPlaying.current = true; setPaused(false); }
-      catch { throw new Error("playback_blocked"); }
+      catch { fail("playback_blocked", "autoplay_denied"); }
       return;
     }
     if (!Number.isSafeInteger(command.seconds) || !command.seconds || Math.abs(command.seconds) > 31 * 86400) throw new Error("unavailable_time");
     const target = segment.started + element.currentTime + command.seconds;
+    trace.current.target_at = target;
     const playing = !element.paused;
     let row = segments.find(candidate => candidate.started <= target && target < candidate.ended);
     if (!row) {
@@ -51,63 +72,69 @@ export function HistoryPlayer({ playback, title, item, onClose, onExpired, onRev
       try {
         const params = new URLSearchParams({ camera: playback.camera, at: String(target) });
         const response = await fetch(`/edge/api/history/recording?${params}`, { cache: "no-store", signal: abort.signal });
-        if (response.status === 401) { onExpired(); throw new Error("no_video"); }
-        if (!response.ok) throw new Error("playback_blocked");
+        trace.current.http_status = response.status;
+        if (response.status === 401) { onExpired(); fail("no_video", "http_error"); }
+        if (!response.ok) fail("playback_blocked", "http_error");
         const resolved: ToolResult = await response.json(), destination = resolved.playback;
         if (!resolved.available || !destination || destination.camera !== playback.camera
-          || Math.abs(destination.at - target) > .00001 || !destination.segment_id) throw new Error("unavailable_time");
+          || Math.abs(destination.at - target) > .00001 || !destination.segment_id) fail("unavailable_time", "unavailable_time");
+        trace.current.stage = "archive";
         const window = new URLSearchParams({ camera: playback.camera, start: String(target - 70), end: String(target + 120) });
         const archive = await fetch(`/edge/api/live/archive?${window}`, { cache: "no-store", signal: abort.signal });
-        if (archive.status === 401) { onExpired(); throw new Error("no_video"); }
-        if (!archive.ok) throw new Error("playback_blocked");
+        trace.current.http_status = archive.status;
+        if (archive.status === 401) { onExpired(); fail("no_video", "http_error"); }
+        if (!archive.ok) fail("playback_blocked", "http_error");
         const data: { segments: Segment[] } = await archive.json();
         row = data.segments.find(candidate => candidate.id === destination.segment_id && candidate.started <= target && target < candidate.ended);
-        if (!row) throw new Error("unavailable_time");
+        if (!row) fail("unavailable_time", "unavailable_time");
         if (id !== commandId.current || abort.signal.aborted || !video.current) throw new Error("no_video");
         setSegments(data.segments); setAnalysis(destination.run_id);
       } catch (reason) {
-        if (abort.signal.aborted) throw new Error(id !== commandId.current ? "no_video" : "playback_blocked");
+        if (abort.signal.aborted) fail(id !== commandId.current ? "no_video" : "playback_timeout", id !== commandId.current ? "cancelled" : "request_timeout");
+        trace.current.failure ||= "network_error";
         throw reason;
       } finally { clearTimeout(timeout); }
     }
     wantPlaying.current = playing; setPaused(!playing);
     setError("");
+    loadFailure.current = null; trace.current.stage = row.id === segment.id ? "seeking" : "loading";
     if (row.id === segment.id) element.currentTime = target - row.started;
     else { setInitial(target); setFrames([]); setFocus(null); setSegment(row); }
-    const deadline = Date.now() + 10000;
+    const deadline = Date.now() + MEDIA_WAIT_MS;
     while (Date.now() < deadline) {
-      if (id !== commandId.current || !video.current) throw new Error("no_video");
+      if (id !== commandId.current || !video.current) fail("no_video", "cancelled");
       const active = video.current;
-      if (active.dataset.segment === row.id && active.readyState >= 2 && !active.seeking && Math.abs(active.currentTime - (target - row.started)) < .6) return;
-      if (active.error) break;
+      if (active.dataset.segment === row.id && active.readyState >= 2 && !active.seeking && Math.abs(active.currentTime - (target - row.started)) < .6) { trace.current.stage = "ready"; return; }
+      if (active.error) fail("playback_blocked", "media_error");
       await new Promise(resolve => setTimeout(resolve, 40));
     }
-    throw new Error("playback_blocked");
+    fail("playback_timeout", video.current?.readyState ? "seek_timeout" : "load_timeout");
   };
   const ready = async () => {
-    const id = commandId.current, deadline = Date.now() + 20000;
+    const id = commandId.current, deadline = Date.now() + MEDIA_WAIT_MS;
     while (Date.now() < deadline) {
-      if (id !== commandId.current) throw new Error("no_video");
+      if (id !== commandId.current) fail("no_video", "cancelled");
       if (loadedPlayback.current !== playback) { await new Promise(resolve => setTimeout(resolve, 40)); continue; }
       if (loadFailure.current) throw new Error(loadFailure.current);
       const element = video.current;
-      if (element?.error) throw new Error("playback_blocked");
+      if (element?.error) fail("playback_blocked", "media_error");
       if (element && element.readyState >= 2 && !element.seeking
         && (playback.source !== "camera_time" || element.dataset.segment === playback.segment_id)
-        && Math.abs(Number(element.dataset.started) + element.currentTime - playback.at) < .6) return;
+        && Math.abs(Number(element.dataset.started) + element.currentTime - playback.at) < .6) { trace.current.stage = "ready"; return; }
       await new Promise(resolve => setTimeout(resolve, 40));
     }
-    throw new Error("playback_blocked");
+    fail("playback_timeout", video.current?.readyState ? "seek_timeout" : "load_timeout");
   };
-  useImperativeHandle(controlRef, () => ({ control, ready }));
+  useImperativeHandle(controlRef, () => ({ control, ready, diagnostics }));
   const manualControl = async (command: MediaCommand) => {
     setControlling(true);
     try { await control(command); }
-    catch (reason) { setError((reason as Error).message === "unavailable_time" ? "No hay grabación disponible para ese instante." : "No se pudo completar el control del video."); }
+    catch (reason) { setError((reason as Error).message === "unavailable_time" ? "No hay grabación disponible para ese instante." : (reason as Error).message === "playback_timeout" ? "La grabación está tardando demasiado en cargar. Volvé a intentar cuando termine de cargar." : "No se pudo completar el control del video."); }
     finally { setControlling(false); }
   };
   useEffect(() => {
     const abort = new AbortController();
+    begin("archive", playback.at);
     loadFailure.current = null;
     const load = async () => {
       try {
@@ -116,16 +143,18 @@ export function HistoryPlayer({ playback, title, item, onClose, onExpired, onRev
           : item?.kind === "uturn" ? Math.max(playback.at - 60, Math.min(playback.at - 12, (trajectoryStart ?? playback.at) - 1)) : playback.at - 4;
         const params = new URLSearchParams({ camera: playback.camera, start: String(playback.at - 70), end: String(playback.at + 120) });
         const response = await fetch(`/edge/api/live/archive?${params}`, { cache: "no-store", signal: abort.signal });
-        if (response.status === 401) { onExpired(); return; }
-        if (!response.ok) throw new Error("No se pudo abrir la grabación.");
+        trace.current.http_status = response.status;
+        if (response.status === 401) { trace.current.failure = "http_error"; onExpired(); return; }
+        if (!response.ok) { trace.current.failure = "http_error"; throw new Error("No se pudo abrir la grabación."); }
         const data: { segments: Segment[] } = await response.json();
         const row = playback.source === "camera_time"
           ? data.segments.find(s => s.id === playback.segment_id && s.started <= playback.at && s.ended > playback.at)
           : data.segments.find(s => s.started <= lead && s.ended > lead)
             ?? data.segments.find(s => s.started <= playback.at && s.ended > playback.at);
-        if (!row) { loadFailure.current = "unavailable_time"; throw new Error("No hay video guardado para este instante."); }
+        if (!row) { trace.current.failure = "unavailable_time"; loadFailure.current = "unavailable_time"; throw new Error("No hay video guardado para este instante."); }
         if (!abort.signal.aborted) {
           setError("");
+          trace.current.stage = "loading";
           setSegments(data.segments); setSegment(row); setAnalysis(playback.run_id); setInitial(Math.max(row.started, lead));
           // A repeated request for the same camera/time can reuse this player.
           if (playback.source === "camera_time") {
@@ -137,7 +166,7 @@ export function HistoryPlayer({ playback, title, item, onClose, onExpired, onRev
           }
           loadedPlayback.current = playback;
         }
-      } catch (reason) { if (!abort.signal.aborted) { loadFailure.current ||= "playback_blocked"; loadedPlayback.current = playback; setError((reason as Error).message); } }
+      } catch (reason) { if (!abort.signal.aborted) { trace.current.failure ||= "network_error"; loadFailure.current ||= "playback_blocked"; loadedPlayback.current = playback; setError((reason as Error).message); } }
     };
     void load(); return () => abort.abort();
   }, [playback, item?.kind, item?.details?.trajectory, onExpired]);
@@ -236,7 +265,7 @@ export function HistoryPlayer({ playback, title, item, onClose, onExpired, onRev
         onLoadedData={() => { setBuffering(false); play(); }} onPlaying={() => { setNeedsPlay(false); setBuffering(false); }}
         onPlay={() => { wantPlaying.current = true; setPaused(false); }}
         onPause={event => { if (event.currentTarget === video.current && !event.currentTarget.ended && event.currentTarget.readyState >= 2) { wantPlaying.current = false; setPaused(true); setBuffering(false); } }}
-        onError={() => { loadFailure.current = "playback_blocked"; setBuffering(false); setError("No se pudo reproducir la grabación. Cerrá el video y volvé a abrirlo."); }}
+        onError={() => { trace.current.failure = "media_error"; loadFailure.current = "playback_blocked"; setBuffering(false); setError("No se pudo reproducir la grabación. Cerrá el video y volvé a abrirlo."); }}
         onTimeUpdate={() => setPosition(segment.started + (video.current?.currentTime ?? 0))} onEnded={advance} />
       <canvas ref={canvas} data-history-overlay aria-label="Cajas históricas" className="pointer-events-none absolute inset-0 h-full w-full" />
       <span ref={caption} className="pointer-events-none absolute bottom-12 left-2 rounded bg-black/75 px-2 py-1 font-mono text-[10px] text-white" />
