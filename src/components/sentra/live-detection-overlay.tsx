@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, type RefObject } from "react";
 import { containedVideo, DetectionBuffer, fragmentPosition, type VideoFragment } from "@/lib/live-detections";
-import { TYPE, COLOR } from "@/lib/edge-replay";
+import { vehicleName } from "@/lib/edge-replay";
 
 export type DetectionStatus = {
   status: string; stale?: boolean; fps_observed?: number; region_revision?: number;
@@ -80,7 +80,7 @@ export function LiveDetectionOverlay({ camera, enabled, receiving, filter, video
         context.strokeStyle = color;
         context.strokeRect(x, y, w, h);
         const attributes = object.attributes;
-        const name = attributes ? `${TYPE[attributes.type] ?? attributes.type} · ${COLOR[attributes.color] ?? attributes.color}` : object.label;
+        const name = attributes ? vehicleName(attributes.type, attributes.color, object.class_id) : object.label;
         const text = `${name} #${object.id}`, textWidth = context.measureText(text).width + 8;
         const tx = Math.min(Math.max(area.x, x), area.x + area.width - textWidth);
         const ty = Math.max(area.y, y - 17);

@@ -14,12 +14,20 @@ export type Run = {
 export type Bootstrap = { user: { name: string; email: string; csrf: string }; cameras: Camera[]; run: Run; duration: number; buffer_seconds: number };
 export type Vehicle = { id: number; time: number; box: Track["xyxy"]; type: string; color: string };
 
-export const TYPE: Record<string, string> = { turismo: "Turismo", camioneta: "Camioneta", paila: "Paila", camion_pequeno: "Camión pequeño", camion_grande: "Camión grande", busito: "Busito", bus: "Bus", otro: "Otro", dudoso: "No se distingue" };
+export const TYPE: Record<string, string> = { turismo: "Turismo", camioneta: "Camioneta", paila: "Paila", camion: "Camión", camion_pequeno: "Camión pequeño", camion_grande: "Camión grande", busito: "Busito", bus: "Bus", otro: "Otro", dudoso: "No se distingue" };
 export const COLOR: Record<string, string> = { blanco: "Blanco", negro: "Negro", gris: "Gris", plata: "Plata", plateado: "Plateado", otro_color: "Otro color", rojo: "Rojo", azul: "Azul", verde: "Verde", amarillo: "Amarillo", cafe: "Café", marron: "Marrón", beige: "Beige", naranja: "Naranja" };
 const NATIVE: Record<number, string> = { 2: "Auto", 3: "Moto", 5: "Bus", 7: "Camión" };
 export const isVehicle = (track: Track) => track.visible && [2, 3, 5, 7].includes(track.native_class);
 export const typeName = (track: Track) => track.attributes ? (TYPE[track.attributes.type] ?? track.attributes.type) : (NATIVE[track.native_class] ?? "Vehículo");
-export const colorName = (track: Track) => track.attributes ? (COLOR[track.attributes.color] ?? track.attributes.color) : "Por clasificar";
+export function isTruck(type?: string | null, nativeClass?: number) {
+  const key = (type ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim().replace(/ /g, "_");
+  return ["camion", "camiones", "camion_pequeno", "camion_grande", "camioncito", "camioncitos"].includes(key) || (!key && nativeClass === 7);
+}
+export function vehicleName(type?: string | null, color?: string | null, nativeClass?: number, fallback = "Vehículo") {
+  const name = type ? TYPE[type] ?? type : NATIVE[nativeClass ?? -1] ?? fallback;
+  return color && !isTruck(type, nativeClass) ? `${name} · ${COLOR[color] ?? color}` : name;
+}
+export const colorName = (track: Track) => isTruck(track.attributes?.type, track.native_class) ? "" : track.attributes ? (COLOR[track.attributes.color] ?? track.attributes.color) : "Por clasificar";
 export const clock = (seconds: number) => {
   const t = Math.max(0, Math.min(90, seconds));
   return `${String(Math.floor(t / 60)).padStart(2, "0")}:${String(Math.floor(t % 60)).padStart(2, "0")}`;
