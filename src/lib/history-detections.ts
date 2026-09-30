@@ -7,7 +7,7 @@ export type HistoryFrame = {
 };
 export type Playback = { camera: string; at: number; run_id: string; track_uid?: string; incident_uid?: string };
 export type HistoryItem = {
-  uid: string; run_id?: string; camera: string; title: string; type?: string; color?: string;
+  uid: string; run_id?: string; camera: string; title: string; type?: string; color?: string | null; class_id?: number;
   first?: number; last?: number; at?: number; best_time?: number;
   thumbnail_url?: string | null; playback: Playback; track_uid?: string;
   kind?: string; review?: string; clip_url?: string | null; clip_status?: string;
@@ -21,7 +21,7 @@ export type Coverage = { runs: {
 export type ToolResult = {
   items?: HistoryItem[]; total?: number; next_cursor?: string | null;
   filters?: Record<string, string | number>; counting?: string; coverage?: Coverage;
-  playback?: Playback; runs?: Coverage["runs"]; note?: string; reason?: string; identity_confirmed?: boolean;
+  playback?: Playback; runs?: Coverage["runs"]; note?: string; color_notice?: string; reason?: string; identity_confirmed?: boolean;
   cameras?: { camera: string; title: string; receiving: boolean }[];
 };
 

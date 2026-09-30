@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { clock, type Camera, type Vehicle } from "@/lib/edge-replay";
+import { clock, isTruck, type Camera, type Vehicle } from "@/lib/edge-replay";
 
 export function EdgeVehicleGallery({ camera, vehicles, onSeek }: {
   camera: Camera; vehicles: Vehicle[]; onSeek: (seconds: number) => void;
@@ -14,7 +14,7 @@ export function EdgeVehicleGallery({ camera, vehicles, onSeek }: {
   const videoRef = useRef<HTMLVideoElement>(null);
   const cache = useRef<Record<number, string>>({});
   const filtered = useMemo(() => vehicles.filter(v => (type === "Todos" || v.type === type) &&
-    (color === "Todos" || v.color === color) && String(v.id).includes(query.replace(/^#/, "").trim())), [vehicles, type, color, query]);
+    (isTruck(type) || color === "Todos" || (!isTruck(v.type) && v.color === color)) && String(v.id).includes(query.replace(/^#/, "").trim())), [vehicles, type, color, query]);
   const pages = Math.max(1, Math.ceil(filtered.length / 24));
   const current = Math.min(page, pages - 1);
   const items = useMemo(() => filtered.slice(current * 24, current * 24 + 24), [filtered, current]);
@@ -76,15 +76,15 @@ export function EdgeVehicleGallery({ camera, vehicles, onSeek }: {
       </div>
       <div className="mt-5 flex flex-wrap items-end gap-4">
         <label className="flex flex-col gap-2"><span className="font-mono text-[9px] uppercase tracking-[0.16em] text-text-faint">Tipo</span>
-          <select aria-label="Filtrar por tipo" value={type} onChange={e => { setType(e.target.value); setPage(0); }} className={inputClass}>
+          <select aria-label="Filtrar por tipo" value={type} onChange={e => { setType(e.target.value); if (isTruck(e.target.value)) setColor("Todos"); setPage(0); }} className={inputClass}>
             {["Todos", ...new Set(vehicles.map(v => v.type))].map(value => <option key={value}>{value}</option>)}
           </select>
         </label>
-        <label className="flex flex-col gap-2"><span className="font-mono text-[9px] uppercase tracking-[0.16em] text-text-faint">Color</span>
+        {!isTruck(type) && <label className="flex flex-col gap-2"><span className="font-mono text-[9px] uppercase tracking-[0.16em] text-text-faint">Color</span>
           <select aria-label="Filtrar por color" value={color} onChange={e => { setColor(e.target.value); setPage(0); }} className={inputClass}>
-            {["Todos", ...new Set(vehicles.map(v => v.color))].map(value => <option key={value}>{value}</option>)}
+            {["Todos", ...new Set(vehicles.filter(v => !isTruck(v.type) && v.color).map(v => v.color))].map(value => <option key={value}>{value}</option>)}
           </select>
-        </label>
+        </label>}
         <label className="flex flex-col gap-2"><span className="font-mono text-[9px] uppercase tracking-[0.16em] text-text-faint">Buscar ID</span>
           <input value={query} onChange={e => { setQuery(e.target.value); setPage(0); }} placeholder="# id…" className={`${inputClass} w-[130px] placeholder:text-text-faint`} />
         </label>
@@ -105,7 +105,7 @@ export function EdgeVehicleGallery({ camera, vehicles, onSeek }: {
           <div className="flex items-center justify-between border-t border-[var(--border)] px-2.5 py-2">
             <span className="font-mono text-[11px] font-semibold text-text">#{vehicle.id}</span><span className="font-mono text-[10px] text-accent">{clock(vehicle.time)}</span>
           </div>
-          <div className="px-2.5 pb-2 font-mono text-[10px] text-text-muted">{vehicle.color}</div>
+          {!isTruck(vehicle.type) && vehicle.color && <div className="px-2.5 pb-2 font-mono text-[10px] text-text-muted">{vehicle.color}</div>}
         </button>)}
       </div>
       {pages > 1 && <div className="mt-6 flex items-center justify-center gap-2">

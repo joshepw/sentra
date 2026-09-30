@@ -2,7 +2,7 @@
 
 import { useEffect, useImperativeHandle, useRef, useState, type Ref } from "react";
 import { containedVideo } from "@/lib/live-detections";
-import { COLOR, TYPE } from "@/lib/edge-replay";
+import { vehicleName } from "@/lib/edge-replay";
 import { historyFrameAt, historyTime, type HistoryFrame, type HistoryItem, type Playback } from "@/lib/history-detections";
 import type { MediaCommand } from "@/lib/viewer-actions";
 import { VideoLoading } from "@/components/sentra/assistant-feedback";
@@ -117,7 +117,7 @@ export function HistoryPlayer({ playback, item, onClose, onExpired, onReview, bo
         const [x1, y1, x2, y2] = object.box, x = area.x + x1 * area.width, y = area.y + y1 * area.height;
         context.strokeStyle = selected ? "#ffdb68" : "#57f1aa"; context.lineWidth = selected ? 3 : 1.5;
         context.strokeRect(x, y, (x2 - x1) * area.width, (y2 - y1) * area.height);
-        const attrs = object.attributes, name = attrs ? `${TYPE[attrs.type] ?? attrs.type} · ${COLOR[attrs.color] ?? attrs.color}` : object.label;
+        const attrs = object.attributes, name = attrs ? vehicleName(attrs.type, attrs.color, object.class_id) : object.label;
         const text = `${name} #${object.id}`; const labelY = Math.max(area.y, y - 18);
         context.fillStyle = "#00150deb"; context.fillRect(x, labelY, context.measureText(text).width + 8, 17);
         context.fillStyle = selected ? "#ffdb68" : "#a8fbd0"; context.fillText(text, x + 4, labelY + 2);

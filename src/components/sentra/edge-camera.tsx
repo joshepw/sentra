@@ -51,7 +51,7 @@ export const EdgeCamera = memo(function EdgeCamera({ camera, controller, overlay
         }
         if (overlays.cajas) { ctx.strokeStyle = color; ctx.strokeRect(x * sx, y * sy, (right - x) * sx, (bottom - y) * sy); }
         if (overlays.etiquetas) {
-          const label = `${typeName(track)} #${track.native_id}${track.attributes ? ` · ${colorName(track)}` : ""}`;
+          const label = `${typeName(track)} #${track.native_id}${track.attributes && colorName(track) ? ` · ${colorName(track)}` : ""}`;
           const width = ctx.measureText(label).width + 12;
           const left = Math.max(0, Math.min(x * sx, canvas.width - width));
           const top = Math.max(font + 8, y * sy);

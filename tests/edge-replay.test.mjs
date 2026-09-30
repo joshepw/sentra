@@ -1,8 +1,25 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {frameAt, ReplayClock, vehiclesIn} from '../src/lib/edge-replay.ts';
+import {frameAt, ReplayClock, vehiclesIn, vehicleName, colorName, isTruck} from '../src/lib/edge-replay.ts';
 const track=(id,attributes=null,box=[1,2,5,8])=>({native_id:id,native_class:2,visible:true,xyxy:box,attributes});
 const frame=(time,tracks=[],camera='crowne')=>({camera,source_seconds:time,analysed_fps_5s:9,native_tracks:tracks});
+
+test('truck labels and gallery suppress stored color while cars retain it',()=>{
+ for(const type of ['camion_pequeno','camion_grande','camion']) {
+  const attrs={type,color:'rojo',completed_s:1};
+  const t={...track(1,attrs),native_class:7};
+  assert.equal(colorName(t),'');
+  assert.ok(!vehicleName(type,'rojo',7).includes('Rojo'));
+  assert.equal(vehiclesIn([frame(1,[t])])[0].color,'');
+ }
+ assert.equal(vehicleName('camion_pequeno',null,2),'Camión pequeño');
+ assert.equal(vehicleName(undefined,'rojo',7),'Camión');
+ assert.equal(vehicleName('camioneta','rojo',7),'Camioneta · Rojo');
+ assert.equal(vehicleName('paila','azul',2),'Paila · Azul');
+ assert.equal(isTruck('Camión pequeño'),true);
+ assert.equal(isTruck('Camión grande'),true);
+ assert.equal(isTruck('Camioneta'),false);
+});
 
 test('a later classification never appears on an earlier video frame and stale boxes disappear',()=>{
  const earlier=frame(1,[track(4)]),later=frame(1.15,[track(4,{type:'paila',color:'rojo',completed_s:1.1})]);
