@@ -9,22 +9,24 @@ import { VideoLoading } from "@/components/sentra/assistant-feedback";
 
 type Segment = { id: string; started: number; ended: number; url: string; state: string };
 const button = "cursor-pointer rounded-lg border border-[var(--border)] px-3 py-2 text-xs hover:border-accent disabled:opacity-40";
-export type PlayerControl = { control: (command: MediaCommand) => Promise<void> };
+export type PlayerControl = { control: (command: MediaCommand) => Promise<void>; ready: () => Promise<void> };
 
-export function HistoryPlayer({ playback, item, onClose, onExpired, onReview, boxes, onBoxes, controlRef }: {
-  playback: Playback; item?: HistoryItem; onClose: () => void; onExpired: () => void;
+export function HistoryPlayer({ playback, title, item, onClose, onExpired, onReview, boxes, onBoxes, controlRef }: {
+  playback: Playback; title?: string; item?: HistoryItem; onClose: () => void; onExpired: () => void;
   onReview: (uid: string, decision: string) => Promise<void>;
   boxes: boolean; onBoxes: (boxes: boolean) => void; controlRef: Ref<PlayerControl>;
 }) {
   const video = useRef<HTMLVideoElement>(null), canvas = useRef<HTMLCanvasElement>(null), caption = useRef<HTMLSpanElement>(null);
   const [segments, setSegments] = useState<Segment[]>([]), [segment, setSegment] = useState<Segment | null>(null);
-  const [initial, setInitial] = useState(playback.at - 4), [error, setError] = useState("");
+  const [initial, setInitial] = useState(playback.source === "camera_time" ? playback.at : playback.at - 4), [error, setError] = useState("");
   const [frames, setFrames] = useState<HistoryFrame[]>([]), [focus, setFocus] = useState<{ local_id: number; session: string } | null>(null);
   const [position, setPosition] = useState(playback.at), [reviewing, setReviewing] = useState(false);
   const [needsPlay, setNeedsPlay] = useState(false);
   const [buffering, setBuffering] = useState(true);
   const [paused, setPaused] = useState(false), [controlling, setControlling] = useState(false);
   const wantPlaying = useRef(true), commandId = useRef(0);
+  const loadFailure = useRef<string | null>(null);
+  const loadedPlayback = useRef<Playback | null>(null);
   useEffect(() => () => { commandId.current++; }, []);
   const control = async (command: MediaCommand) => {
     const element = video.current;
@@ -53,7 +55,22 @@ export function HistoryPlayer({ playback, item, onClose, onExpired, onReview, bo
     }
     throw new Error("playback_blocked");
   };
-  useImperativeHandle(controlRef, () => ({ control }));
+  const ready = async () => {
+    const id = commandId.current, deadline = Date.now() + 20000;
+    while (Date.now() < deadline) {
+      if (id !== commandId.current) throw new Error("no_video");
+      if (loadedPlayback.current !== playback) { await new Promise(resolve => setTimeout(resolve, 40)); continue; }
+      if (loadFailure.current) throw new Error(loadFailure.current);
+      const element = video.current;
+      if (element?.error) throw new Error("playback_blocked");
+      if (element && element.readyState >= 2 && !element.seeking
+        && (playback.source !== "camera_time" || element.dataset.segment === playback.segment_id)
+        && Math.abs(Number(element.dataset.started) + element.currentTime - playback.at) < .6) return;
+      await new Promise(resolve => setTimeout(resolve, 40));
+    }
+    throw new Error("playback_blocked");
+  };
+  useImperativeHandle(controlRef, () => ({ control, ready }));
   const manualControl = async (command: MediaCommand) => {
     setControlling(true);
     try { await control(command); }
@@ -62,29 +79,46 @@ export function HistoryPlayer({ playback, item, onClose, onExpired, onReview, bo
   };
   useEffect(() => {
     const abort = new AbortController();
+    loadFailure.current = null;
     const load = async () => {
       try {
         const trajectoryStart = item?.details?.trajectory?.[0]?.[0];
-        const lead = item?.kind === "uturn" ? Math.max(playback.at - 60, Math.min(playback.at - 12, (trajectoryStart ?? playback.at) - 1)) : playback.at - 4;
+        const lead = playback.source === "camera_time" ? playback.at
+          : item?.kind === "uturn" ? Math.max(playback.at - 60, Math.min(playback.at - 12, (trajectoryStart ?? playback.at) - 1)) : playback.at - 4;
         const params = new URLSearchParams({ camera: playback.camera, start: String(playback.at - 70), end: String(playback.at + 120) });
         const response = await fetch(`/edge/api/live/archive?${params}`, { cache: "no-store", signal: abort.signal });
         if (response.status === 401) { onExpired(); return; }
         if (!response.ok) throw new Error("No se pudo abrir la grabación.");
         const data: { segments: Segment[] } = await response.json();
-        const row = data.segments.find(s => s.started <= lead && s.ended > lead)
-          ?? data.segments.find(s => s.started <= playback.at && s.ended > playback.at);
-        if (!row) throw new Error("No hay video guardado para este instante.");
-        if (!abort.signal.aborted) { setSegments(data.segments); setSegment(row); setInitial(Math.max(row.started, lead)); }
-      } catch (reason) { if (!abort.signal.aborted) setError((reason as Error).message); }
+        const row = playback.source === "camera_time"
+          ? data.segments.find(s => s.id === playback.segment_id && s.started <= playback.at && s.ended > playback.at)
+          : data.segments.find(s => s.started <= lead && s.ended > lead)
+            ?? data.segments.find(s => s.started <= playback.at && s.ended > playback.at);
+        if (!row) { loadFailure.current = "unavailable_time"; throw new Error("No hay video guardado para este instante."); }
+        if (!abort.signal.aborted) {
+          setError("");
+          setSegments(data.segments); setSegment(row); setInitial(Math.max(row.started, lead));
+          // A repeated request for the same camera/time can reuse this player.
+          if (playback.source === "camera_time") {
+            wantPlaying.current = true; setPaused(false);
+            if (video.current?.dataset.segment === row.id) {
+              video.current.currentTime = playback.at - row.started;
+              void video.current.play().catch(() => setNeedsPlay(true));
+            }
+          }
+          loadedPlayback.current = playback;
+        }
+      } catch (reason) { if (!abort.signal.aborted) { loadFailure.current ||= "playback_blocked"; loadedPlayback.current = playback; setError((reason as Error).message); } }
     };
     void load(); return () => abort.abort();
   }, [playback, item?.kind, item?.details?.trajectory, onExpired]);
   useEffect(() => {
-    if (!segment) return;
+    const runId = playback.run_id;
+    if (!segment || !runId) return;
     const abort = new AbortController();
     const load = async () => {
       try {
-        const params = new URLSearchParams({ run_id: playback.run_id, camera: playback.camera, start: String(segment.started), end: String(segment.ended) });
+        const params = new URLSearchParams({ run_id: runId, camera: playback.camera, start: String(segment.started), end: String(segment.ended) });
         if (playback.track_uid) params.set("uid", playback.track_uid);
         const response = await fetch(`/edge/api/history/frames?${params}`, { cache: "no-store", signal: abort.signal });
         if (response.status === 401) { onExpired(); return; }
@@ -107,7 +141,7 @@ export function HistoryPlayer({ playback, item, onClose, onExpired, onReview, bo
       context.resetTransform(); context.clearRect(0, 0, layer.width, layer.height); context.scale(ratio, ratio);
       layer.dataset.boxes = "0";
       if (!boxes || element.seeking || element.readyState < 2) { label.textContent = boxes ? "Sincronizando…" : "Cajas ocultas"; return; }
-      const at = segment.started + mediaTime, frame = historyFrameAt(frames, at);
+      const at = segment.started + mediaTime, frame = playback.run_id ? historyFrameAt(frames, at) : null;
       if (!frame) { label.textContent = "Sin detecciones indexadas para este instante"; return; }
       const area = containedVideo(rect.width, rect.height, element.videoWidth, element.videoHeight);
       if (!area || frame.width !== element.videoWidth || frame.height !== element.videoHeight) return;
@@ -145,7 +179,7 @@ export function HistoryPlayer({ playback, item, onClose, onExpired, onReview, bo
     for (const event of ["seeking", "seeked", "pause", "loadeddata"]) element.addEventListener(event, redraw);
     draw();
     return () => { stopped = true; resize.disconnect(); if (callback) element.cancelVideoFrameCallback(callback); if (animation) cancelAnimationFrame(animation); for (const event of ["seeking", "seeked", "pause", "loadeddata"]) element.removeEventListener(event, redraw); };
-  }, [frames, focus, segment, boxes, item]);
+  }, [frames, focus, segment, boxes, item, playback.run_id]);
   const advance = () => {
     if (!segment) return;
     const next = segments[segments.findIndex(row => row.id === segment.id) + 1];
@@ -161,7 +195,7 @@ export function HistoryPlayer({ playback, item, onClose, onExpired, onReview, bo
     if (element && wantPlaying.current) void element.play().catch(() => { if (video.current === element && !element.error) { setNeedsPlay(true); setPaused(true); } });
   };
   return <section aria-label="Video del resultado" className="flex h-full min-h-0 flex-col overflow-hidden rounded-xl border border-accent/40 bg-[#08130f] text-text">
-    <div className="flex shrink-0 items-start justify-between gap-2 px-3 py-2"><div className="min-w-0"><p className="truncate text-sm text-accent">{item?.title ?? playback.camera} · grabación</p><p className="mt-1 text-[10px] text-text-faint">{historyTime(position)} · Honduras</p></div><button className={button} onClick={onClose}>Cerrar video</button></div>
+    <div className="flex shrink-0 items-start justify-between gap-2 px-3 py-2"><div className="min-w-0"><p className="truncate text-sm text-accent">{item?.title ?? title ?? playback.camera} · grabación</p><p className="mt-1 text-[10px] text-text-faint">{historyTime(position)} · Honduras</p></div><button className={button} onClick={onClose}>Cerrar video</button></div>
     {error && <p role="status" className="shrink-0 px-3 pb-2 text-xs text-warning">{error}</p>}
     {!segment && !error && <div className="relative min-h-0 flex-1 bg-black"><VideoLoading label="Abriendo la grabación" /></div>}
     {segment && <div className="relative min-h-0 flex-1 overflow-hidden bg-black">
@@ -171,7 +205,7 @@ export function HistoryPlayer({ playback, item, onClose, onExpired, onReview, bo
         onLoadedData={() => { setBuffering(false); play(); }} onPlaying={() => { setNeedsPlay(false); setBuffering(false); }}
         onPlay={() => { wantPlaying.current = true; setPaused(false); }}
         onPause={event => { if (event.currentTarget === video.current && !event.currentTarget.ended && event.currentTarget.readyState >= 2) { wantPlaying.current = false; setPaused(true); setBuffering(false); } }}
-        onError={() => { setBuffering(false); setError("No se pudo reproducir la grabación. Cerrá el video y volvé a abrirlo."); }}
+        onError={() => { loadFailure.current = "playback_blocked"; setBuffering(false); setError("No se pudo reproducir la grabación. Cerrá el video y volvé a abrirlo."); }}
         onTimeUpdate={() => setPosition(segment.started + (video.current?.currentTime ?? 0))} onEnded={advance} />
       <canvas ref={canvas} data-history-overlay aria-label="Cajas históricas" className="pointer-events-none absolute inset-0 h-full w-full" />
       <span ref={caption} className="pointer-events-none absolute bottom-12 left-2 rounded bg-black/75 px-2 py-1 font-mono text-[10px] text-white" />

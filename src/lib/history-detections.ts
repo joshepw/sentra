@@ -5,7 +5,7 @@ export type HistoryFrame = {
   source_pts: number; region_revision: number; objects: Detection[];
   signal?: { state: string; reason?: string };
 };
-export type Playback = { camera: string; at: number; run_id: string; track_uid?: string; incident_uid?: string };
+export type Playback = { camera: string; at: number; run_id?: string | null; track_uid?: string; incident_uid?: string; source?: "camera_time"; segment_id?: string };
 export type HistoryItem = {
   uid: string; run_id?: string; camera: string; title: string; type?: string; color?: string | null; class_id?: number;
   first?: number; last?: number; at?: number; best_time?: number;
@@ -24,7 +24,15 @@ export type ToolResult = {
   playback?: Playback; runs?: Coverage["runs"]; note?: string; color_notice?: string; reason?: string; identity_confirmed?: boolean;
   cameras?: { camera: string; title: string; receiving: boolean }[];
   search_hours?: { start: string; end: string; timezone: string; has_daytime_overlap: boolean };
+  available?: boolean;
+  recording_request?: { camera: string; title: string; at: number; local_time: string; timezone: string; clock: string; date_defaulted: boolean };
 };
+
+export function sameCameraPlayback(left: Playback | undefined, right: Playback | undefined) {
+  return Boolean(left?.source === "camera_time" && right?.source === "camera_time"
+    && Number.isFinite(left.at) && left.camera === right.camera && left.at === right.at
+    && left.segment_id && left.segment_id === right.segment_id);
+}
 
 function historyInstant(value: number | string | null | undefined) {
   let milliseconds = NaN;
