@@ -205,3 +205,28 @@ EDGE_TEST_SLOW_VIDEO=/path/to/fragmented-original.mp4 node tests/camera-time.bro
 It uses an ephemeral loopback gateway with native HTTP range streaming (64 KiB
 every 140 ms) and isolated API fixtures. Set EDGE_TEST_ORIGIN to test a published
 bundle through the same gateway; no production camera API writes are made.
+
+
+## Smooth archive playback
+
+Historical playback holds the requested frame until three seconds of continuous
+video are buffered. At a minute boundary that reserve includes the next
+contiguous recording. Only that following recording is prefetched, starting
+within the last twenty seconds of the current one. Two fixed native video
+elements exchange active/prepared roles so advancing uses the decoded element
+without replacing its source or fetching it again. A real gap or end of the
+available window still stops playback.
+
+Internal buffering pauses preserve the user's play/pause intent. A paused seek
+can display a decoded still frame without waiting for a playback reserve;
+resuming prepares the reserve. Controls can move within a selected recording
+while its metadata is loading. Requested timestamps, fractional seconds,
+frame/box alignment, action receipts and the 45-second readiness limit remain.
+Changing destinations or closing the player releases unused native media loads.
+
+Voice remains independent. Loading or playing a reply neither reopens the
+recording nor postpones video playback. The existing audio format is unchanged.
+`tests/history-buffer.browser.mjs` exercises real range-streamed fragmented MP4s,
+a target 0.18 seconds before a boundary, element reuse, no loading flicker,
+voice off, delayed WAV/TTS, and cancellation of both streams. It requires
+EDGE_TEST_SLOW_VIDEO and accepts EDGE_TEST_ORIGIN for the published bundle.

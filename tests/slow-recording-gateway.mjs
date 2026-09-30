@@ -8,7 +8,7 @@ import { once } from 'node:events';
 export async function slowRecordingGateway(upstream, file) {
   const size = statSync(file).size;
   const server = createServer(async (req, res) => {
-    if (req.url !== '/slow-recording.mp4') {
+    if (new URL(req.url, 'http://fixture').pathname !== '/slow-recording.mp4') {
       const target = new URL(req.url, upstream);
       const request = (target.protocol === 'https:' ? httpsRequest : httpRequest)(target, response => {
         res.writeHead(response.statusCode, response.headers); response.pipe(res);
