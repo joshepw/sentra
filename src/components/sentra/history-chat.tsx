@@ -11,7 +11,7 @@ import { AssistantProgress } from "@/components/sentra/assistant-feedback";
 import type { AssistantVoice } from "@/components/sentra/assistant-voice";
 import { VoiceRecorder } from "@/components/sentra/voice-recorder";
 import { COLOR, TYPE, isTypeOnly, vehicleName } from "@/lib/edge-replay";
-import { historyRange, historyTime, type Coverage, type HistoryItem, type Playback, type ToolResult } from "@/lib/history-detections";
+import { historyRange, historyTime, sameCameraPlayback, type Coverage, type HistoryItem, type Playback, type ToolResult } from "@/lib/history-detections";
 import type { ViewerState, ViewerAction, ViewChanges, ActionFailure } from "@/lib/viewer-actions";
 
 type Job = { id: string; status: string; phase: string; transcript?: string; reply?: string; error?: string; voice_error?: string; audio_url?: string; tool?: string; result?: ToolResult; action?: ViewerAction };
@@ -82,7 +82,8 @@ export function HistoryChat({ csrf, onExpired, viewer, onView, cameras, children
       let job: Job = await post("chat", { ...(sound ?? { text: question }), run_id: snapshot.runId || undefined,
         selected_uid: snapshot.selection?.item?.uid ?? snapshot.selection?.playback.incident_uid ?? snapshot.selection?.playback.track_uid,
         context_id: conversation.current, voice: !voice.muted,
-        viewer: { ...snapshot.viewer, revision: expectedRevision, result_ids: visible.slice(0, 1000).map(item => item.uid), filters: snapshot.result?.filters ?? {} },
+        viewer: { ...snapshot.viewer, revision: expectedRevision, result_ids: visible.slice(0, 1000).map(item => item.uid), filters: snapshot.result?.filters ?? {},
+          ...(snapshot.selection?.playback.source === "camera_time" ? { playback: snapshot.selection.playback } : {}) },
       }, controller.signal);
       // send runs only from form, microphone and shortcut events; never during render.
       // eslint-disable-next-line react-hooks/purity -- Event-driven polling deadline.
@@ -91,7 +92,8 @@ export function HistoryChat({ csrf, onExpired, viewer, onView, cameras, children
       let actionReceipt: { status: "applied" | "stale" | "failed"; reason?: ActionFailure } | null = null;
       const receive = (value: ToolResult) => {
         if (revision() !== expectedRevision) throw new Error("La vista cambió durante la consulta. Repetila con la selección actual.");
-        if (value.playback) choose({ playback: value.playback }); else showResult(value);
+        if (value.recording_request && value.available === false) setError(value.note || "No hay grabación para ese instante.");
+        else if (value.playback) choose({ playback: value.playback }); else showResult(value);
         resultReceived = true;
       };
       while (["queued", "working", "waiting_action"].includes(job.status)) {
@@ -104,16 +106,28 @@ export function HistoryChat({ csrf, onExpired, viewer, onView, cameras, children
           if (!actionReceipt) {
             actionReceipt = { status: "stale" };
             if (job.action.revision === revision()) {
+              let appliedRevision = job.action.revision;
               try {
                 const action = job.action;
                 if (action.kind === "media" || action.kind === "navigate") {
-                  if (current.current.selection?.item?.uid !== action.uid) throw new Error("no_video");
+                  const matches = action.uid ? current.current.selection?.item?.uid === action.uid
+                    : action.kind === "media" && sameCameraPlayback(action.playback, current.current.selection?.playback);
+                  if (!matches) throw new Error("no_video");
                   if (action.kind === "navigate") await navigate(action.direction);
                   else {
                     if (!player.current) throw new Error("no_video");
                     await player.current.control(action);
                     if (action.revision !== revision()) throw new Error("stale");
                   }
+                } else if (action.kind === "open_archive") {
+                  if (action.playback.source !== "camera_time" || !Number.isFinite(action.playback.at) || !action.playback.segment_id) throw new Error("unavailable_time");
+                  flushSync(() => {
+                    choose({ playback: action.playback }); onView({ camera: action.playback.camera, all: false });
+                  });
+                  appliedRevision = revision();
+                  if (!player.current) throw new Error("no_video");
+                  await player.current.ready();
+                  if (appliedRevision !== revision()) throw new Error("stale");
                 } else flushSync(() => {
                   if (action.kind === "view") {
                     onView(action.changes);
@@ -127,8 +141,9 @@ export function HistoryChat({ csrf, onExpired, viewer, onView, cameras, children
                 actionReceipt = { status: "applied" };
               } catch (reason) {
                 const code = (reason as Error).message;
-                actionReceipt = job.action.revision !== revision() ? { status: "stale" } : {
-                  status: "failed", ...(["no_more_results", "no_video", "unavailable_time", "playback_blocked"].includes(code) ? { reason: code as ActionFailure } : {}),
+                actionReceipt = code === "stale" || appliedRevision !== revision() ? { status: "stale" } : {
+                  status: "failed", ...(job.action.kind === "open_archive" ? { reason: "recording_unavailable" as const }
+                    : ["no_more_results", "no_video", "unavailable_time", "playback_blocked"].includes(code) ? { reason: code as ActionFailure } : {}),
                 };
               }
             }
@@ -225,7 +240,7 @@ export function HistoryChat({ csrf, onExpired, viewer, onView, cameras, children
     </div>
     <div className="grid min-h-0 flex-1 grid-rows-[minmax(120px,1fr)_minmax(96px,1fr)] gap-3 px-3 pb-3 sm:px-5 lg:grid-cols-[minmax(0,1fr)_320px] lg:grid-rows-1">
       <div className="min-h-0 min-w-0" aria-label="Panel de video">
-        {selection ? <HistoryPlayer key={`${selection.playback.camera}:${selection.playback.at}:${selection.playback.track_uid ?? selection.playback.incident_uid ?? ""}`} controlRef={player} playback={selection.playback} item={selection.item} onClose={() => choose(null)} onExpired={onExpired} onReview={review} boxes={viewer.boxes} onBoxes={boxes => onView({ boxes })} /> : <div className="h-full min-h-0 overflow-y-auto rounded-xl" data-camera-view>{children}</div>}
+        {selection ? <HistoryPlayer key={`${selection.playback.camera}:${selection.playback.at}:${selection.playback.track_uid ?? selection.playback.incident_uid ?? ""}`} controlRef={player} playback={selection.playback} title={cameraTitle(selection.playback.camera)} item={selection.item} onClose={() => choose(null)} onExpired={onExpired} onReview={review} boxes={viewer.boxes} onBoxes={boxes => onView({ boxes })} /> : <div className="h-full min-h-0 overflow-y-auto rounded-xl" data-camera-view>{children}</div>}
       </div>
       <aside aria-label="Resultados de la consulta" className="flex min-h-0 min-w-0 flex-col overflow-hidden rounded-xl border border-[var(--border)] bg-[#0c1b16]">
         <div className="shrink-0 border-b border-[var(--border)] px-3 py-1 lg:py-2" data-result-context>
@@ -239,7 +254,7 @@ export function HistoryChat({ csrf, onExpired, viewer, onView, cameras, children
         </div>
         {busy && <div className="shrink-0 px-3 pt-2 lg:pt-3"><AssistantProgress phase={phase} /></div>}
         <div className="min-h-0 flex-1 space-y-2 overflow-y-auto overscroll-contain p-2 lg:p-3" data-result-list>
-          {!result && !busy && <div className="space-y-3 py-3 text-sm text-text-faint"><p>Búsqueda de personas, vehículos e incidencias por texto o voz.</p><div className="flex flex-wrap gap-2">{[["Pailas rojas", "Mostrar las pailas rojas"], ["Vueltas en U", "Mostrar las vueltas en U"], ["Cruces en rojo", "Mostrar los cruces en rojo"], ["Cobertura", "Qué cámaras y horas tienen detecciones guardadas"]].map(([label, question]) => <button key={label} className={button} disabled={busy || recording} onClick={() => void send(question)}>{label}</button>)}</div><p className="text-xs leading-relaxed">Controles por voz: “abrir el segundo”, “siguiente resultado” o “retroceder diez segundos”.</p></div>}
+          {!result && !busy && <div className="space-y-3 py-3 text-sm text-text-faint"><p>Búsqueda de personas, vehículos e incidencias por texto o voz.</p><div className="flex flex-wrap gap-2">{[["Pailas rojas", "Mostrar las pailas rojas"], ["Vueltas en U", "Mostrar las vueltas en U"], ["Cruces en rojo", "Mostrar los cruces en rojo"], ["Cobertura", "Qué cámaras y horas tienen detecciones guardadas"]].map(([label, question]) => <button key={label} className={button} disabled={busy || recording} onClick={() => void send(question)}>{label}</button>)}</div><p className="text-xs leading-relaxed">“Mostrar Little Caesars a las 7 de la mañana” abre la grabación de hoy. También podés indicar una fecha, pausar o retroceder diez segundos.</p></div>}
           {result?.coverage && <p className="hidden text-[11px] leading-relaxed text-text-faint lg:block">{result.counting !== "candidate_events" && "Una misma unidad puede aparecer más de una vez. "}{result.coverage.runs.some(run => run.kind === "archive" && run.status !== "complete") ? "Cobertura parcial: solo los momentos analizados." : "Resultados de los momentos analizados."}</p>}
           {result?.color_notice && <p className="text-xs leading-relaxed text-text-faint">{result.color_notice}</p>}
           {(result?.note || result?.reason) && <p className="text-xs leading-relaxed text-warning">{result.note ?? result.reason}</p>}

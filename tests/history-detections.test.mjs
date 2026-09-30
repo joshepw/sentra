@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { historyFrameAt, historyRange, historyTime } from '../src/lib/history-detections.ts';
+import { historyFrameAt, historyRange, historyTime, sameCameraPlayback } from '../src/lib/history-detections.ts';
 const object={id:2,class_id:2,label:'Auto',score:.9,box:[.1,.2,.3,.4]};
 const frame=(at,extra={})=>({camera:'little',session:'one',captured_at:at,width:1920,height:1080,source_pts:at-100,region_revision:20,objects:[object],...extra});
 test('archive seeks never show future labels and remove boxes across missing observations',()=>{
@@ -45,4 +45,12 @@ test('compact ranges preserve Honduras dates across midnight and tolerate missin
  assert.match(historyRange('2026-09-26',undefined),/^Desde/);
  assert.match(historyRange(undefined,'2026-09-26'),/^Hasta/);
  assert.equal(historyRange('not-a-date',Infinity),'');
+});
+test('camera/time controls stay on the exact currently opened archive, without borrowing a result ID',()=>{
+ const current={source:'camera_time',camera:'little',at:1790773200,segment_id:'a'.repeat(24),run_id:null};
+ assert.equal(sameCameraPlayback(current,{...current}),true);
+ for(const changed of [undefined,{...current,source:undefined},{...current,camera:'little1'},
+   {...current,at:current.at+1},{...current,segment_id:'b'.repeat(24)},{...current,at:NaN},
+   {...current,segment_id:undefined}])assert.equal(sameCameraPlayback(current,changed),false);
+ assert.equal(sameCameraPlayback(undefined,undefined),false);
 });

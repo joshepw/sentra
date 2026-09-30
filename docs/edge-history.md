@@ -6,9 +6,10 @@ Explicit dates, including “ayer”, use Honduras time and can search older arc
 without inheriting the live analysis filter. Results count appearances per camera/tracking
 session; they do not establish unique physical vehicles.
 
-The edge backend supplies six read-only MCP tools: coverage, current reception,
-vehicle search, candidate incident search, opening a result, and appearance
-comparison across cameras. Arguments are bounded and validated by the backend.
+The edge backend supplies eight read-only MCP tools: coverage, current reception,
+vehicle search, person/shirt search, candidate incident search, opening a result,
+opening a camera at a date/time, and appearance comparison across cameras.
+Arguments are bounded and validated by the backend.
 The model has no arbitrary SQL, shell, or file access. Search totals are rendered
 from database results. Missing or partial coverage is shown separately.
 
@@ -121,7 +122,34 @@ chart request ordering and player-script failure without contacting production.
 Next-result navigation loads the following page when necessary and reports the end
 of the list. Relative seeks preserve pause across archive segments and wait for the
 browser's seek to finish. Missing intervals and playback failures return failure
-receipts, without spoken success. Commands require a selected result in the current
+receipts, without spoken success. Result navigation requires a selected result in the current
 list. Validate this layout with `tests/investigation-viewer.browser.mjs` and the
 matching backend chat regressions; the fixture uses an isolated identity and a
 copy of the index, with original video and local Whisper/Gemma/TTS.
+
+## Camera and time playback
+
+“Mostrame Little Caesars a las 7 de la mañana” calls `abrir_grabacion` with
+`camera: "little"` and `time: "07:00:00"`. The optional `date` is `YYYY-MM-DD`;
+omitting it means today in `America/Tegucigalpa`, independently of the current
+search or analysis. Explicit dates and “ayer” keep their requested local date.
+Times use the archive's reception clock. “Little Caesars 1” identifies `little1`.
+
+The tool checks the original recording catalog, verified file and internal gaps.
+It returns the exact playback timestamp and segment ID without requiring a
+vehicle, incident or detection run. A matching run is optional for overlays.
+Missing, future or unverified footage produces an explicit unavailable result;
+the browser keeps the previous video and search cards. Opening recordings is not
+restricted by the daytime policy for vehicle searches.
+
+The chat sends an `open_archive` action. The browser confirms it only after the
+requested segment has decoded and the seek has finished at the requested instant,
+without the pre-roll used by search results. Loading failures and intervening view
+changes return failure/stale receipts. Pause, play and relative seek also work
+on directly opened recordings; next/previous still refer to search results.
+
+`tests/camera-time.browser.mjs` verifies exact opening, receipt timing, repeated
+requests, controls across segments, missing footage, preserved results, stale
+actions, media failure and mobile sizing. APIs and MP4 ranges use local fixtures,
+including when checking the published bundle. The matching backend tests cover
+Honduras midnight, dates, gaps, optional detections and authenticated MCP access.
