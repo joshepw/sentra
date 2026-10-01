@@ -137,12 +137,21 @@ function LiveCamera({ camera, ready, playerFailed, goLive, showBoxes, fit, onPla
   }, [camera.url, camera.receiving, ready]);
   useEffect(() => {
     const element = video.current;
-    if (goLive && element) {
+    if (!goLive || !element) return;
+    let closed = false;
+    const events = ["loadedmetadata", "durationchange", "progress", "canplay"];
+    const cleanup = () => events.forEach(event => element.removeEventListener(event, jump));
+    const jump = () => {
       const position = livePlaybackPosition(element.seekable);
-      if (position !== null) element.currentTime = position;
-      void element.play().catch(() => {});
-    }
-  }, [goLive]);
+      if (closed || position === null) return;
+      try { element.currentTime = position; } catch { return; }
+      cleanup();
+      void element.play().catch(() => { if (!closed) setStage("blocked"); });
+    };
+    events.forEach(event => element.addEventListener(event, jump));
+    jump();
+    return () => { closed = true; cleanup(); };
+  }, [goLive, camera.receiving, ready]);
   const loading = ["connecting", "buffering", "reconnecting"].includes(stage) && !playerFailed;
   return <article className={`${panel} overflow-hidden ${fit ? "flex h-full min-h-0 flex-col" : ""}`} data-live-camera={camera.key}>
     <div className="flex shrink-0 items-center justify-between gap-2 px-3 py-2 font-mono text-xs">
@@ -254,13 +263,13 @@ export function EdgeLiveViewer() {
   const markPlayable = useCallback(() => setVideoPlayable(true), []);
   const [view, setView] = useState<ViewerState>({ camera: "little", all: false, boxes: true, mode: "live", revision: 0 });
   const { mode, camera: selectedKey, all } = view;
+  const [goLive, setGoLive] = useState(0);
   const changeView = useCallback((changes: ViewChanges) => {
     const { close_video: _close, ...patch } = changes;
     void _close;
     setView(previous => ({ ...previous, ...patch, revision: previous.revision + 1 }));
+    if (changes.mode === "live") setGoLive(value => value + 1);
   }, []);
-  const setAll = (all: boolean) => changeView({ all });
-  const [goLive, setGoLive] = useState(0);
   const expired = useCallback(() => { setDenied(true); setState(null); }, []);
   const voice = useAssistantVoice(expired);
   useEffect(() => {
@@ -304,10 +313,6 @@ export function EdgeLiveViewer() {
     {state?.storage.accepting === false && <p role="alert" className="shrink-0 px-3 py-2 text-xs text-warning">La grabación está pausada para conservar el espacio libre del disco.</p>}
     {state ? <HistoryChat csrf={state.user.csrf} onExpired={expired} viewer={view} onView={changeView} cameras={state.cameras} voice={voice} deferTraffic={mode === "live" && !!camera?.receiving && !videoPlayable && !playerFailed}>
       {mode === "live" ? <div className="flex h-full min-h-0 flex-col">
-        <div className="mb-2 flex shrink-0 flex-wrap items-center justify-between gap-2">
-          <div className="flex gap-2"><button className={button} aria-pressed={all} onClick={() => setAll(true)}>Todas</button><button className={button} aria-label="Cámara seleccionada" aria-pressed={!all} onClick={() => setAll(false)}><span className="sm:hidden">Una cámara</span><span className="hidden sm:inline">Cámara seleccionada</span></button></div>
-          <button className={button} onClick={() => setGoLive(value => value + 1)}>Volver al directo</button>
-        </div>
         <div className={`grid min-h-0 flex-1 gap-3 ${all ? "auto-rows-max overflow-y-auto lg:grid-cols-2" : "grid-rows-1"}`}>
           {(all ? cameras : camera ? [camera] : [])?.map(row => <LiveCamera key={row.key} camera={row} ready={ready} playerFailed={playerFailed} goLive={goLive} showBoxes={view.boxes} fit={!all} onPlayable={markPlayable} />)}
         </div>
