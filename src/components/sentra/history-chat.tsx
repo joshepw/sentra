@@ -10,6 +10,8 @@ import { CorridorMap } from "@/components/sentra/corridor-map";
 import { AssistantProgress } from "@/components/sentra/assistant-feedback";
 import type { AssistantVoice } from "@/components/sentra/assistant-voice";
 import { VoiceRecorder } from "@/components/sentra/voice-recorder";
+import { EmptySector, SectorDirectory } from "@/components/sentra/sector-directory";
+import { PRIMARY_SECTOR, SECTORS, type SectorId } from "@/lib/edge-sectors";
 import { COLOR, TYPE, isTypeOnly, vehicleName } from "@/lib/edge-replay";
 import { historyRange, historyTime, sameCameraPlayback, type Coverage, type HistoryItem, type Playback, type ToolResult } from "@/lib/history-detections";
 import type { ViewerState, ViewerAction, ViewChanges, ActionFailure, PlaybackDiagnostics } from "@/lib/viewer-actions";
@@ -26,6 +28,8 @@ export function HistoryChat({ csrf, onExpired, viewer, onView, cameras, children
   const liveRun = coverage.runs.find(run => run.kind === "live");
   // Omitting the run would let the backend choose an older archive by default.
   const runId = liveRun?.id ?? "live";
+  const inCameraSector = viewer.sector === PRIMARY_SECTOR;
+  const sectorTitle = SECTORS.find(sector => sector.id === viewer.sector)?.title;
   const mapCameras = useMemo(() => cameras.map(camera => ({ id: camera.key, nombre: camera.title, n_giro: 0, n_rojo: 0 })), [cameras]);
   const [text, setText] = useState(""), [result, setResult] = useState<ToolResult | null>(null);
   const [busy, setBusy] = useState(false), [phase, setPhase] = useState(""), [error, setError] = useState("");
@@ -41,9 +45,13 @@ export function HistoryChat({ csrf, onExpired, viewer, onView, cameras, children
   const choose = (value: typeof selection) => {
     localRevision.current++; current.current.selection = value; setSelection(value);
   };
+  const selectSector = (sector: SectorId | null) => {
+    choose(null);
+    onView({ sector, ...(sector === PRIMARY_SECTOR ? { all: true, mode: "live" as const } : {}) });
+  };
   const showResult = (value: ToolResult) => {
     localRevision.current++; current.current.result = value; setResult(value); choose(null);
-    if (typeof value.filters?.camera === "string") onView({ camera: value.filters.camera, all: false });
+    onView(typeof value.filters?.camera === "string" ? { camera: value.filters.camera, all: false } : { sector: PRIMARY_SECTOR });
   };
   useEffect(() => {
     mounted.current = true;
@@ -77,13 +85,14 @@ export function HistoryChat({ csrf, onExpired, viewer, onView, cameras, children
     abort.current?.abort(); const controller = new AbortController(); abort.current = controller;
     try {
       const snapshot = current.current, expectedRevision = revision();
+      const hasVisibleCamera = snapshot.viewer.sector === PRIMARY_SECTOR;
       conversation.current ||= crypto.randomUUID();
-      const visible = snapshot.result?.items ?? [];
+      const visible = hasVisibleCamera ? snapshot.result?.items ?? [] : [];
       let job: Job = await post("chat", { ...(sound ?? { text: question }), run_id: snapshot.runId || undefined,
-        selected_uid: snapshot.selection?.item?.uid ?? snapshot.selection?.playback.incident_uid ?? snapshot.selection?.playback.track_uid,
+        selected_uid: hasVisibleCamera ? snapshot.selection?.item?.uid ?? snapshot.selection?.playback.incident_uid ?? snapshot.selection?.playback.track_uid : undefined,
         context_id: conversation.current, voice: !voice.muted,
-        viewer: { ...snapshot.viewer, revision: expectedRevision, result_ids: visible.slice(0, 1000).map(item => item.uid), filters: snapshot.result?.filters ?? {},
-          ...(snapshot.selection?.playback.source === "camera_time" ? { playback: snapshot.selection.playback } : {}) },
+        viewer: { ...snapshot.viewer, revision: expectedRevision, result_ids: visible.slice(0, 1000).map(item => item.uid), filters: hasVisibleCamera ? snapshot.result?.filters ?? {} : {},
+          ...(hasVisibleCamera && snapshot.selection?.playback.source === "camera_time" ? { playback: snapshot.selection.playback } : {}) },
       }, controller.signal);
       // send runs only from form, microphone and shortcut events; never during render.
       // eslint-disable-next-line react-hooks/purity -- Event-driven polling deadline.
@@ -93,7 +102,8 @@ export function HistoryChat({ csrf, onExpired, viewer, onView, cameras, children
       const receive = (value: ToolResult) => {
         if (revision() !== expectedRevision) throw new Error("La vista cambió durante la consulta. Repetila con la selección actual.");
         if (value.recording_request && value.available === false) setError(value.note || "No hay grabación para ese instante.");
-        else if (value.playback) choose({ playback: value.playback }); else showResult(value);
+        else if (value.playback) { choose({ playback: value.playback }); onView({ camera: value.playback.camera, all: false }); }
+        else showResult(value);
         resultReceived = true;
       };
       while (["queued", "working", "waiting_action"].includes(job.status)) {
@@ -134,7 +144,7 @@ export function HistoryChat({ csrf, onExpired, viewer, onView, cameras, children
                 } else flushSync(() => {
                   if (action.kind === "view") {
                     onView(action.changes);
-                    if (action.changes.close_video || action.changes.mode) choose(null);
+                    if (action.changes.close_video || action.changes.mode || action.changes.sector !== undefined) choose(null);
                   } else if (action.kind === "open_video") {
                     const item = current.current.result?.items?.find(row => row.uid === action.uid)
                       ?? (current.current.selection?.item?.uid === action.uid ? current.current.selection.item : undefined);
@@ -238,6 +248,12 @@ export function HistoryChat({ csrf, onExpired, viewer, onView, cameras, children
   ].filter(Boolean).join(" · ") : "";
   const range = filters ? historyRange(filters.start, filters.end) : "";
   return <section aria-label="Consulta del historial" className="flex min-h-0 flex-1 flex-col pt-2">
+    {viewer.sector !== null && <nav aria-label="Navegación de sectores" className="mb-2 flex shrink-0 items-center gap-2 px-3 text-xs sm:px-5">
+      <button type="button" aria-label="Ver sectores" onClick={() => selectSector(null)} className="cursor-pointer py-1 text-text-muted hover:text-accent">← Sectores</button>
+      <span aria-hidden="true" className="text-text-faint">/</span><span className="text-text">{sectorTitle}</span>
+      {inCameraSector && <span className="ml-auto font-mono text-[10px] text-text-faint">{cameras.length} cámaras</span>}
+    </nav>}
+    {viewer.sector === null ? <SectorDirectory cameras={cameras} onSelect={selectSector} /> : !inCameraSector ? <EmptySector sector={viewer.sector} onSelect={selectSector} /> : <>
     <div aria-label="Mapa y tráfico del corredor" className="mb-3 flex h-[clamp(100px,15dvh,128px)] shrink-0 snap-x snap-mandatory gap-3 overflow-x-auto px-3 sm:grid sm:h-[clamp(112px,21dvh,220px)] sm:grid-cols-[minmax(0,1fr)_minmax(240px,32%)] sm:overflow-visible sm:px-5 lg:grid-cols-[minmax(0,1fr)_320px]">
       <div className="h-full min-h-0 min-w-0 basis-[88%] shrink-0 snap-start" aria-label="Mapa del corredor"><CameraMap cams={mapCameras} sel={Math.max(0, cameras.findIndex(camera => camera.key === viewer.camera))} onPick={index => { choose(null); onView({ camera: cameras[index].key, all: false }); }} admin={false} api="" token="" loadSavedLayout={false} compact /></div>
       <div className="h-full min-h-0 min-w-0 basis-[88%] shrink-0 snap-start"><EdgeTrafficChart camera={viewer.camera} title={cameraTitle(viewer.camera)} run={liveRun} onExpired={onExpired} defer={deferTraffic} /></div>
@@ -273,9 +289,11 @@ export function HistoryChat({ csrf, onExpired, viewer, onView, cameras, children
         </div>
       </aside>
     </div>
+    </>}
     <footer className="relative shrink-0 border-t border-[var(--border)] bg-[#0c1b16] px-3 pt-2 pb-[max(.75rem,env(safe-area-inset-bottom))] sm:px-5" aria-label="Asistente de cámaras">
+      {!inCameraSector && busy && <div className="mb-2"><AssistantProgress phase={phase} /></div>}
       {error && <p role="alert" className="mb-2 text-xs text-warning">{error}</p>}
-      <form onSubmit={event => { event.preventDefault(); void send(text); }} className="flex gap-2"><label className="sr-only" htmlFor="history-question">Consulta de cámaras</label><input id="history-question" autoComplete="off" maxLength={2000} value={text} onChange={event => setText(event.target.value)} placeholder="Buscar o controlar el video…" className="min-w-0 flex-1 rounded-lg border border-[var(--border)] bg-bg-input px-3 py-3 text-sm text-text outline-none focus:border-accent" disabled={recording} /><button type="submit" className={`${button} border-accent/50 text-accent`} disabled={busy || recording || !text.trim()}>Enviar</button><VoiceRecorder disabled={busy} onSend={sound => void send("", sound)} onInteraction={voice.unlock} onActivityChange={active => { if (active) voice.prepare(); setRecording(active); }} onError={setError} /></form>
+      <form onSubmit={event => { event.preventDefault(); void send(text); }} className="flex gap-2"><label className="sr-only" htmlFor="history-question">Consulta de cámaras</label><input id="history-question" autoComplete="off" maxLength={2000} value={text} onChange={event => setText(event.target.value)} placeholder={inCameraSector ? "Buscar o controlar el video…" : "Mostrame un sector…"} className="min-w-0 flex-1 rounded-lg border border-[var(--border)] bg-bg-input px-3 py-3 text-sm text-text outline-none focus:border-accent" disabled={recording} /><button type="submit" className={`${button} border-accent/50 text-accent`} disabled={busy || recording || !text.trim()}>Enviar</button><VoiceRecorder disabled={busy} onSend={sound => void send("", sound)} onInteraction={voice.unlock} onActivityChange={active => { if (active) voice.prepare(); setRecording(active); }} onError={setError} /></form>
     </footer>
   </section>;
 }

@@ -1,6 +1,8 @@
 import type { Playback } from "./history-detections";
+import type { SectorId } from "./edge-sectors";
 
 export type ViewerState = {
+  sector: SectorId | null;
   camera: string;
   all: boolean;
   boxes: boolean;
