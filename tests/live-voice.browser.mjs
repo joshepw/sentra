@@ -63,6 +63,7 @@ try {
   });
   await page.goto(origin + '/edge');
   await page.getByRole('button', { name: 'Silenciar voz', exact: true }).click();
+  await page.getByRole('button', { name: 'Abrir sector 1era Calle', exact: true }).click();
   const video = camera => page.locator(`[data-live-video="${camera}"]`);
   const ready = camera => page.waitForFunction(key => {
     const v = document.querySelector(`[data-live-video="${key}"]`);

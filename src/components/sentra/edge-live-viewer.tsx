@@ -10,6 +10,7 @@ import { SentraLogoMark, SentraWordmark } from "@/components/sentra/ui";
 import { LiveDetectionOverlay, type DetectionStatus } from "@/components/sentra/live-detection-overlay";
 import { fragmentName, type VideoFragment } from "@/lib/live-detections";
 import { LIVE_HLS_CONFIG, livePlaybackPosition } from "@/lib/live-playback";
+import { sectorAfterChange } from "@/lib/edge-sectors";
 import { VideoLoading } from "@/components/sentra/assistant-feedback";
 
 type HlsInstance = {
@@ -261,13 +262,13 @@ export function EdgeLiveViewer() {
   const [ready, setReady] = useState(false);
   const [playerFailed, setPlayerFailed] = useState(false), [videoPlayable, setVideoPlayable] = useState(false);
   const markPlayable = useCallback(() => setVideoPlayable(true), []);
-  const [view, setView] = useState<ViewerState>({ camera: "little", all: false, boxes: true, mode: "live", revision: 0 });
+  const [view, setView] = useState<ViewerState>({ sector: null, camera: "little", all: true, boxes: true, mode: "live", revision: 0 });
   const { mode, camera: selectedKey, all } = view;
   const [goLive, setGoLive] = useState(0);
   const changeView = useCallback((changes: ViewChanges) => {
     const { close_video: _close, ...patch } = changes;
     void _close;
-    setView(previous => ({ ...previous, ...patch, revision: previous.revision + 1 }));
+    setView(previous => ({ ...previous, ...patch, sector: sectorAfterChange(previous.sector, patch), revision: previous.revision + 1 }));
     if (changes.mode === "live") setGoLive(value => value + 1);
   }, []);
   const expired = useCallback(() => { setDenied(true); setState(null); }, []);
@@ -313,7 +314,7 @@ export function EdgeLiveViewer() {
     {state?.storage.accepting === false && <p role="alert" className="shrink-0 px-3 py-2 text-xs text-warning">La grabación está pausada para conservar el espacio libre del disco.</p>}
     {state ? <HistoryChat csrf={state.user.csrf} onExpired={expired} viewer={view} onView={changeView} cameras={state.cameras} voice={voice} deferTraffic={mode === "live" && !!camera?.receiving && !videoPlayable && !playerFailed}>
       {mode === "live" ? <div className="flex h-full min-h-0 flex-col">
-        <div className={`grid min-h-0 flex-1 gap-3 ${all ? "auto-rows-max overflow-y-auto lg:grid-cols-2" : "grid-rows-1"}`}>
+        <div className={`grid min-h-0 flex-1 gap-3 ${all ? `auto-rows-max overflow-y-auto lg:grid-cols-2 ${(cameras?.length ?? 0) > 4 ? "xl:grid-cols-3" : ""}` : "grid-rows-1"}`}>
           {(all ? cameras : camera ? [camera] : [])?.map(row => <LiveCamera key={row.key} camera={row} ready={ready} playerFailed={playerFailed} goLive={goLive} showBoxes={view.boxes} fit={!all} onPlayable={markPlayable} />)}
         </div>
       </div> : camera && <History key={camera.key} camera={camera} onExpired={expired} />}
