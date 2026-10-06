@@ -88,6 +88,12 @@ function LiveCamera({ camera, ready, playerFailed, goLive, showBoxes, fit, onPla
         const remember = (_event: string, details: { frag?: VideoFragment }) => {
           const fragment = details.frag;
           if (!fragment?.url) return;
+          const start = fragment.elementaryStreams?.video?.startPTS ?? fragment.startPTS;
+          const end = fragment.elementaryStreams?.video?.endPTS ?? fragment.endPTS;
+          // A live reload can emit the same filename on a fragment that has not
+          // been demuxed yet. Replacing the demuxed one leaves the overlay with
+          // no timestamp, so keep the fragment that already has one.
+          if (start === undefined || end === undefined || !Number.isFinite(start) || !Number.isFinite(end)) return;
           const name = fragmentName(fragment.url);
           fragments.current = [...fragments.current.filter(row => fragmentName(row.url) !== name), fragment]
             .sort((a, b) => a.start - b.start).slice(-90);
