@@ -11,7 +11,7 @@ import { AssistantProgress } from "@/components/sentra/assistant-feedback";
 import type { AssistantVoice } from "@/components/sentra/assistant-voice";
 import { VoiceRecorder } from "@/components/sentra/voice-recorder";
 import { CaseFile } from "@/components/sentra/case-file";
-import { demoCaseKey, demoCaseChange, EMPTY_DEMO_CASE, type DemoCase, type DemoCaseChange } from "@/lib/case-demo";
+import { demoCaseKey, demoCaseChange, incidentTitle, EMPTY_DEMO_CASE, type DemoCase, type DemoCaseChange } from "@/lib/case-demo";
 import { EmptySector, SectorDirectory } from "@/components/sentra/sector-directory";
 import { PRIMARY_SECTOR, SECTORS, type SectorId } from "@/lib/edge-sectors";
 import { COLOR, TYPE, isTypeOnly, vehicleName } from "@/lib/edge-replay";
@@ -274,6 +274,21 @@ export function HistoryChat({ csrf, onExpired, viewer, onView, cameras, children
     catch (reason) { setError((reason as Error).message === "no_more_results" ? "No hay otro resultado en esa dirección." : "La vista cambió o no se pudo abrir el siguiente resultado."); }
     finally { setPaging(false); }
   };
+  const loadIncidents = async () => {
+    if (sending.current) return;
+    sending.current = true; stopVoice(); setBusy(true); setAnswerReady(false); setPhase("querying"); setError("");
+    abort.current?.abort(); const controller = new AbortController(); abort.current = controller;
+    const expectedRevision = revision();
+    try {
+      const response = await fetch("/edge/api/history/incidents?kind=incidente", { cache: "no-store", signal: controller.signal });
+      if (response.status === 401) { onExpired(); return; }
+      if (!response.ok) throw new Error("No se pudieron cargar los incidentes.");
+      const value: ToolResult = await response.json();
+      if (controller.signal.aborted || revision() !== expectedRevision) return;
+      showResult(value); setAnswerReady(true);
+    } catch (reason) { if (!controller.signal.aborted) setError((reason as Error).message); }
+    finally { sending.current = false; if (mounted.current) { setBusy(false); setPhase(""); } }
+  };
   const compare = async (uid: string) => {
     setPaging(true); setError("");
     try {
@@ -301,7 +316,7 @@ export function HistoryChat({ csrf, onExpired, viewer, onView, cameras, children
   const criteria = filters ? [
     filters.type === "camion" ? "Camiones" : filters.type === "persona" ? "Personas" : filters.type === "auto" || filters.type === "carro" ? "Carro" : filters.type ? TYPE[String(filters.type)] ?? String(filters.type) : !filters.kind && result?.counting !== "candidate_events" ? "Vehículos" : "",
     filters.color && !isTypeOnly(String(filters.type ?? "")) ? `${filters.type === "persona" ? "Camisa: " : ""}${COLOR[String(filters.color)] ?? filters.color}` : "",
-    filters.kind ? filters.kind === "uturn" ? "Vueltas en U" : "Cruces en rojo" : "",
+    filters.kind ? filters.kind === "incidente" ? "Incidente" : filters.kind === "uturn" ? "Vueltas en U" : "Cruces en rojo" : "",
     filters.review ? filters.review === "confirmed" ? "Confirmadas" : filters.review === "dismissed" ? "Descartadas" : "Pendientes" : "",
     filters.camera ? cameraTitle(String(filters.camera)) : "Todas las cámaras",
   ].filter(Boolean).join(" · ") : "";
@@ -333,7 +348,7 @@ export function HistoryChat({ csrf, onExpired, viewer, onView, cameras, children
         </div>
         <div className="shrink-0 border-b border-[var(--border)] px-3 py-1 lg:py-2" data-result-context>
           <div className="flex items-center justify-between gap-2">
-          <h2 className="text-sm">{sideTab === "case" ? "Caso seleccionado" : outsideHours ? "Fuera del horario de búsqueda" : result?.total !== undefined ? `${result.total} ${result.counting === "candidate_events" ? result.total === 1 ? "incidencia" : "incidencias" : result.total === 1 ? "aparición" : "apariciones"}` : "Resultados"}</h2>
+          <h2 className="text-sm">{sideTab === "case" ? "Caso seleccionado" : outsideHours ? "Fuera del horario de búsqueda" : result?.total !== undefined ? `${result.total} ${result.counting === "candidate_events" ? result.filters?.kind === "incidente" ? result.total === 1 ? "incidente" : "incidentes" : result.total === 1 ? "incidencia" : "incidencias" : result.total === 1 ? "aparición" : "apariciones"}` : "Resultados"}</h2>
           {selectedIndex >= 0 && <div className="flex items-center gap-2"><span className="text-xs text-accent">{selectedIndex + 1} / {result?.total ?? result?.items?.length}</span><button className={button} aria-label="Resultado anterior" disabled={(busy && !answerReady) || paging || selectedIndex === 0} onClick={() => void manualNavigate("previous")}>←</button><button className={button} aria-label="Siguiente resultado" disabled={(busy && !answerReady) || paging || (selectedIndex === (result?.items?.length ?? 0) - 1 && !result?.next_cursor)} onClick={() => void manualNavigate("next")}>→</button></div>}
           </div>
           {sideTab === "results" && criteria && <p className="mt-1 text-[11px] leading-snug text-text-muted">{criteria}</p>}
@@ -344,14 +359,14 @@ export function HistoryChat({ csrf, onExpired, viewer, onView, cameras, children
         </div>
         {busy && !answerReady && <div className="shrink-0 px-3 pt-2 lg:pt-3"><AssistantProgress phase={phase} /></div>}
         <div ref={resultList} role="tabpanel" id={`${tabId}-results-panel`} aria-labelledby={`${tabId}-results-tab`} hidden={sideTab !== "results"} className={sideTab === "results" ? "min-h-0 flex-1 space-y-2 overflow-y-auto overscroll-contain p-2 lg:p-3" : "hidden"} onScroll={event => { if (sideTab === "results") resultScroll.current = event.currentTarget.scrollTop; }} data-result-list>
-          {!result && !busy && <div className="space-y-3 py-3 text-sm text-text-faint"><p>Búsqueda de personas, vehículos e incidencias por texto o voz.</p><div className="flex flex-wrap gap-2">{[["Pailas rojas", "Mostrar las pailas rojas"], ["Vueltas en U", "Mostrar las vueltas en U"], ["Cruces en rojo", "Mostrar los cruces en rojo"], ["Cobertura", "Qué cámaras y horas tienen detecciones guardadas"]].map(([label, question]) => <button key={label} className={button} disabled={busy || recording} onClick={() => void send(question)}>{label}</button>)}</div><p className="text-xs leading-relaxed">“Mostrar Little Caesars a las 7 de la mañana” abre la grabación de hoy. También podés indicar una fecha, pausar o retroceder diez segundos.</p></div>}
+          {!result && !busy && <div className="space-y-3 py-3 text-sm text-text-faint"><p>Búsqueda de personas, vehículos e incidencias por texto o voz.</p><div className="flex flex-wrap gap-2">{[["Incidente", "Mostrar los incidentes registrados"], ["Pailas rojas", "Mostrar las pailas rojas"], ["Vueltas en U", "Mostrar las vueltas en U"], ["Cruces en rojo", "Mostrar los cruces en rojo"], ["Cobertura", "Qué cámaras y horas tienen detecciones guardadas"]].map(([label, question]) => <button key={label} className={button} disabled={busy || recording} onClick={() => void (label === "Incidente" ? loadIncidents() : send(question))}>{label}</button>)}</div><p className="text-xs leading-relaxed">“Mostrar Little Caesars a las 7 de la mañana” abre la grabación de hoy. También podés indicar una fecha, pausar o retroceder diez segundos.</p></div>}
           {result?.coverage && <p className="hidden text-[11px] leading-relaxed text-text-faint lg:block">{result.counting !== "candidate_events" && "Una misma unidad puede aparecer más de una vez. "}{result.coverage.runs.some(run => run.kind === "archive" && run.status !== "complete") ? "Cobertura parcial: solo los momentos analizados." : "Resultados de los momentos analizados."}</p>}
           {result?.color_notice && <p className="text-xs leading-relaxed text-text-faint">{result.color_notice}</p>}
           {(result?.note || result?.reason) && <p className="text-xs leading-relaxed text-warning">{result.note ?? result.reason}</p>}
           {result?.items?.length === 0 && <p className="py-3 text-sm text-text-faint">{outsideHours ? "Las búsquedas de vehículos por tipo o color están disponibles de 7 a. m. a 6 p. m., hora de Honduras." : "Sin coincidencias en el historial procesado para esos filtros."}</p>}
           {result?.items?.map((item, index) => <article key={item.uid} data-result-number={index + 1} aria-current={selection?.item?.uid === item.uid ? "true" : undefined} className={`flex gap-3 rounded-lg border p-2 lg:p-3 ${selection?.item?.uid === item.uid ? "border-accent/60 bg-[#123a2a]/50" : "border-[var(--border)] bg-[#09150f]"}`}>
             {item.thumbnail_url && <img src={item.thumbnail_url} alt={vehicleName(item.type, item.color, item.class_id)} loading="lazy" className="h-16 w-20 shrink-0 rounded-md object-contain" />}
-            <div className="min-w-0 flex-1"><p className="text-sm text-text"><span className="mr-1 font-mono text-accent">{index + 1}.</span>{item.kind ? item.kind === "uturn" ? "Posible vuelta en U" : "Posible cruce en rojo" : vehicleName(item.type, item.color ?? "Color sin determinar", item.class_id)}</p><p className="mt-1 text-xs text-text-faint">{item.title}</p><p className="mt-1 text-xs text-text-faint">{historyTime(item.at ?? item.best_time ?? item.first ?? item.playback.at)}</p>{item.kind && <p className="mt-1 text-xs text-warning">{item.review === "confirmed" ? "Confirmada en revisión" : item.review === "dismissed" ? "Descartada" : "Pendiente de revisión"}</p>}{item.similarity !== undefined && <p className="mt-1 text-xs text-warning">Similitud visual: {item.similarity.toFixed(3)}</p>}<div className="mt-2 flex flex-wrap gap-2"><button className={button} onClick={() => { choose({ playback: item.playback, item }); onView({ camera: item.camera, all: false }); }}>Ver video</button>{!item.kind && <button className={button} disabled={paging || (busy && !answerReady)} onClick={() => void compare(item.uid)}>Otras cámaras</button>}</div></div>
+            <div className="min-w-0 flex-1"><p className="text-sm text-text"><span className="mr-1 font-mono text-accent">{index + 1}.</span>{item.kind ? incidentTitle(item.kind) : vehicleName(item.type, item.color ?? "Color sin determinar", item.class_id)}</p><p className="mt-1 text-xs text-text-faint">{item.title}</p><p className="mt-1 text-xs text-text-faint">{historyTime(item.at ?? item.best_time ?? item.first ?? item.playback.at)}</p>{item.kind && <p className="mt-1 text-xs text-warning">{item.review === "confirmed" ? "Confirmada en revisión" : item.review === "dismissed" ? "Descartada" : "Pendiente de revisión"}</p>}{item.similarity !== undefined && <p className="mt-1 text-xs text-warning">Similitud visual: {item.similarity.toFixed(3)}</p>}<div className="mt-2 flex flex-wrap gap-2"><button className={button} onClick={() => { choose({ playback: item.playback, item }); onView({ camera: item.camera, all: false }); }}>Ver video</button>{!item.kind && <button className={button} disabled={paging || (busy && !answerReady)} onClick={() => void compare(item.uid)}>Otras cámaras</button>}</div></div>
           </article>)}
           {result?.next_cursor && <button className={`${button} w-full`} disabled={paging || (busy && !answerReady)} onClick={() => void more()}>{paging ? "Cargando…" : "Ver más resultados"}</button>}
           {result?.runs?.map(run => <p key={run.id} className="text-xs text-text-faint">{run.title} · {run.cameras.length} cámaras · {run.status === "complete" ? "Completo" : "Parcial"} · {historyTime(run.started)}{run.ended ? ` a ${historyTime(run.ended)}` : " en adelante"}</p>)}

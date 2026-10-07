@@ -22,7 +22,7 @@ export function drawDetection(context: CanvasRenderingContext2D, area: Area, obj
   context.strokeRect(x, y, width, height);
   const attrs = object.attributes, name = attrs ? vehicleName(attrs.type, attrs.color, object.class_id) : object.label;
   const text = `${name} #${object.id}${selected ? " · Inspeccionando" : ""}`;
-  const detail = incident ? `${incident.review === "confirmed" ? "Confirmada" : "Pendiente"}: ${incident.kind === "uturn" ? "vuelta en U" : "cruce en rojo"}` : "";
+  const detail = incident ? `${incident.review === "confirmed" ? incident.kind === "incidente" ? "Confirmado" : "Confirmada" : "Pendiente"}: ${incident.kind === "incidente" ? "incidente" : incident.kind === "uturn" ? "vuelta en U" : "cruce en rojo"}` : "";
   const labelHeight = detail ? 32 : 17, labelY = Math.max(area.y, y - labelHeight - (selected ? 7 : 1));
   const labelWidth = Math.min(area.width, Math.max(context.measureText(text).width, context.measureText(detail).width) + 8);
   const labelX = Math.max(area.x, Math.min(x, area.x + area.width - labelWidth));

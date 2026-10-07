@@ -2,7 +2,7 @@ import type { Detection, DetectionFrame } from "./live-detections";
 
 export type Incident = {
   uid: string; track_uid: string; camera: string; session: string; local_id: number;
-  kind: "uturn" | "rojo"; review: "candidate" | "confirmed"; at: number;
+  kind: "uturn" | "rojo" | "incidente"; review: "candidate" | "confirmed"; at: number;
 };
 export type IncidentIndex = Map<string, Incident[]>;
 export const incidentColors = { candidate: "#ffdb68", confirmed: "#ff5263", selected: "#ffffff" };
@@ -15,7 +15,7 @@ export function indexIncidents(input: unknown, camera: string): IncidentIndex {
     const row = value as Incident;
     if (row.camera !== camera || typeof row.session !== "string" || !row.session || row.session.length > 64
       || !Number.isSafeInteger(row.local_id) || !Number.isFinite(row.at) || row.at <= 0
-      || !["uturn", "rojo"].includes(row.kind) || !["candidate", "confirmed"].includes(row.review)) continue;
+      || !["uturn", "rojo", "incidente"].includes(row.kind) || !["candidate", "confirmed"].includes(row.review)) continue;
     const key = `${row.session}:${row.local_id}`;
     result.set(key, [...(result.get(key) ?? []), row]);
   }
