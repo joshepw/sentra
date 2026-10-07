@@ -348,7 +348,7 @@ export function HistoryPlayer({ playback, title, item, onClose, onExpired, onRev
   return <section aria-label="Video del resultado" className="flex h-full min-h-0 flex-col overflow-hidden rounded-xl border border-accent/40 bg-[#08130f] text-text">
     <div className="flex shrink-0 items-start justify-between gap-2 px-3 py-2"><div className="min-w-0"><p className="truncate text-sm text-accent">{item?.title ?? title ?? playback.camera} · grabación</p><p className="mt-1 text-[10px] text-text-faint">{historyTime(position)} · Honduras</p></div><button className={button} onClick={onClose}>Cerrar video</button></div>
     {error && <p role="status" className="shrink-0 px-3 pb-2 text-xs text-warning">{error}</p>}
-    <div className="relative min-h-0 flex-1 overflow-hidden bg-black">
+    <div className="relative min-h-40 flex-1 overflow-hidden bg-black [@media(max-height:500px)]:h-40 [@media(max-height:500px)]:flex-none">
       {mediaSlots.map((row, index) => {
         const active = !!row && row.id === segment?.id;
         return <video key={index} ref={index === 0 ? firstVideo : secondVideo} src={row?.url} preload="auto"

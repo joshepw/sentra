@@ -38,6 +38,8 @@ export function HistoryChat({ csrf, onExpired, viewer, onView, cameras, children
   const [recording, setRecording] = useState(false), [paging, setPaging] = useState(false);
   const abort = useRef<AbortController | null>(null), mounted = useRef(true), sending = useRef(false);
   const player = useRef<PlayerControl>(null);
+  const panels = useRef<HTMLDivElement>(null);
+  const content = useRef<HTMLDivElement>(null);
   const stopVoice = voice.stop;
   const localRevision = useRef(0), conversation = useRef("");
   const current = useRef({ viewer, result, selection, runId });
@@ -46,6 +48,13 @@ export function HistoryChat({ csrf, onExpired, viewer, onView, cameras, children
   const choose = (value: typeof selection) => {
     localRevision.current++; current.current.selection = value; setSelection(value);
   };
+  useEffect(() => {
+    // Keep the map reachable by scrolling while bringing the selected video into view.
+    const scroll = content.current, target = panels.current;
+    if (selection && scroll && target) {
+      scroll.scrollTo({ top: scroll.scrollTop + target.getBoundingClientRect().top - scroll.getBoundingClientRect().top });
+    }
+  }, [selection]);
   const selectSector = (sector: SectorId | null) => {
     choose(null);
     onView({ sector, ...(sector === PRIMARY_SECTOR ? { all: true, mode: "live" as const } : {}) });
@@ -276,6 +285,7 @@ export function HistoryChat({ csrf, onExpired, viewer, onView, cameras, children
   ].filter(Boolean).join(" · ") : "";
   const range = filters ? historyRange(filters.start, filters.end) : "";
   return <section aria-label="Consulta del historial" className="flex min-h-0 flex-1 flex-col pt-2">
+    <div ref={content} className="flex min-h-0 flex-1 flex-col overflow-y-auto">
     {viewer.sector !== null && <nav aria-label="Navegación de sectores" className="mb-2 flex shrink-0 items-center gap-2 px-3 text-xs sm:px-5">
       <button type="button" aria-label="Ver sectores" onClick={() => selectSector(null)} className="cursor-pointer py-1 text-text-muted hover:text-accent">← Sectores</button>
       <span aria-hidden="true" className="text-text-faint">/</span><span className="text-text">{sectorTitle}</span>
@@ -286,7 +296,7 @@ export function HistoryChat({ csrf, onExpired, viewer, onView, cameras, children
       <div className="h-full min-h-0 min-w-0 basis-[88%] shrink-0 snap-start" aria-label="Mapa del corredor"><CameraMap cams={mapCameras} sel={Math.max(0, cameras.findIndex(camera => camera.key === viewer.camera))} onPick={index => { choose(null); onView({ camera: cameras[index].key, all: false }); }} admin={false} api="" token="" loadSavedLayout={false} compact /></div>
       <div className="h-full min-h-0 min-w-0 basis-[88%] shrink-0 snap-start"><EdgeTrafficChart camera={viewer.camera} title={cameraTitle(viewer.camera)} run={liveRun} onExpired={onExpired} defer={deferTraffic} /></div>
     </div>
-    <div className={`grid min-h-0 flex-1 gap-3 px-3 pb-3 sm:px-5 lg:grid-cols-[minmax(0,1fr)_320px] lg:grid-rows-1 ${answerReady ? "grid-rows-[minmax(88px,0.7fr)_minmax(180px,1.3fr)]" : "grid-rows-[minmax(120px,1fr)_minmax(96px,1fr)]"}`}>
+    <div ref={panels} className={`grid flex-1 gap-3 px-3 pb-3 sm:px-5 lg:grid-cols-[minmax(0,1fr)_320px] lg:grid-rows-1 ${selection ? "min-h-min grid-rows-[minmax(min-content,1fr)_200px] lg:min-h-0" : answerReady ? "min-h-0 grid-rows-[minmax(88px,0.7fr)_minmax(180px,1.3fr)]" : "min-h-0 grid-rows-[minmax(120px,1fr)_minmax(96px,1fr)]"}`}>
       <div className="min-h-0 min-w-0" aria-label="Panel de video">
         {selection ? <HistoryPlayer key={`${selection.playback.camera}:${selection.playback.at}:${selection.playback.track_uid ?? selection.playback.incident_uid ?? ""}`} controlRef={player} playback={selection.playback} title={cameraTitle(selection.playback.camera)} item={selection.item} onClose={() => choose(null)} onExpired={onExpired} onReview={review} boxes={viewer.boxes} onBoxes={boxes => onView({ boxes })} /> : <div className="h-full min-h-0 overflow-y-auto rounded-xl" data-camera-view>{children}</div>}
       </div>
@@ -319,6 +329,7 @@ export function HistoryChat({ csrf, onExpired, viewer, onView, cameras, children
       </aside>
     </div>
     </>}
+    </div>
     <footer className="relative shrink-0 border-t border-[var(--border)] bg-[#0c1b16] px-3 pt-2 pb-[max(.75rem,env(safe-area-inset-bottom))] sm:px-5" aria-label="Asistente de cámaras">
       {!inCameraSector && busy && <div className="mb-2"><AssistantProgress phase={phase} /></div>}
       {error && <p role="alert" className="mb-2 text-xs text-warning">{error}</p>}
