@@ -10,6 +10,14 @@ test('an incident starts at its exact displayed instant and rewinding removes th
   assert.equal(incidentAt(index, 'one', 42, 130)?.review, 'candidate');
   assert.equal(incidentAt(index, 'one', 42, 90), undefined);
 });
+test('one curated case marks both participants at the event and keeps their sessions separate', () => {
+  const index = indexIncidents([event({ kind: 'incidente' }), event({ kind: 'incidente', track_uid: 'second-track', local_id: 43 })], 'seguros');
+  for (const id of [42, 43]) {
+    assert.equal(incidentAt(index, 'one', id, 101)?.uid, 'first');
+    assert.equal(incidentAt(index, 'one', id, 99), undefined);
+    assert.equal(incidentAt(index, 'restarted', id, 101), undefined);
+  }
+});
 test('review priority never anticipates a future confirmed maneuver', () => {
   const index = indexIncidents([event({ uid: 'second', at: 110, kind: 'rojo', review: 'confirmed' }), event(),
     event({ uid: 'third', at: 120 })], 'seguros');

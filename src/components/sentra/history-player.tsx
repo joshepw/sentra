@@ -237,7 +237,8 @@ export function HistoryPlayer({ playback, title, item, onClose, onExpired, boxes
       try {
         const trajectoryStart = item?.details?.trajectory?.[0]?.[0];
         const lead = playback.source === "camera_time" ? playback.at
-          : item?.kind === "uturn" ? Math.max(playback.at - 60, Math.min(playback.at - 12, (trajectoryStart ?? playback.at) - 1)) : playback.at - 4;
+          : item?.kind === "uturn" ? Math.max(playback.at - 60, Math.min(playback.at - 12, (trajectoryStart ?? playback.at) - 1))
+            : playback.at - (item?.kind === "incidente" ? 8 : 4);
         const params = new URLSearchParams({ camera: playback.camera, start: String(playback.at - 70), end: String(playback.at + 120) });
         const response = await fetch(`/edge/api/live/archive?${params}`, { cache: "no-store", signal: abort.signal });
         trace.current.http_status = response.status;

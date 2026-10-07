@@ -48,6 +48,6 @@ export function demoCaseChange(previous: DemoCase, change: DemoCaseChange): Demo
 }
 
 export function incidentTitle(kind: string | undefined) {
-  return kind === "uturn" ? "Posible vuelta en U" : kind === "rojo" ? "Posible cruce en rojo"
+  return kind === "incidente" ? "Incidente" : kind === "uturn" ? "Posible vuelta en U" : kind === "rojo" ? "Posible cruce en rojo"
     : kind === "giro" ? "Posible giro indebido" : kind ? "Incidencia por revisar" : "Observación de cámara";
 }

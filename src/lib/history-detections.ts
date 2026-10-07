@@ -12,7 +12,8 @@ export type HistoryItem = {
   first?: number; last?: number; at?: number; best_time?: number;
   thumbnail_url?: string | null; playback: Playback; track_uid?: string;
   kind?: string; review?: string; clip_url?: string | null; clip_status?: string;
-  similarity?: number; details?: { stop_band?: number[]; trajectory?: number[][]; light?: { state: string }; heading_change_deg?: number };
+  similarity?: number; details?: { stop_band?: number[]; trajectory?: number[][]; light?: { state: string }; heading_change_deg?: number;
+    summary?: string; participants?: { track_uid: string; local_id: number; session: string }[] };
 };
 export type Coverage = { runs: {
   id: string; kind: string; title: string; started: number; ended: number | null; status: string;

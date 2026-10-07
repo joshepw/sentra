@@ -100,6 +100,30 @@ Deployment requires the matching history/chat backend before this frontend.
 Rollback can revert the frontend commit independently; retaining the durable
 history and original recordings preserves all collected data.
 
+## Curated incident category
+
+`Incidente` opens the existing result list with `kind=incidente`. It contains
+manually registered cases; the initial catalog has one event involving two
+vehicles. A case has one card, its observation thumbnail, the existing `Ficha`,
+a private evidence download and playback starting eight seconds before the event.
+The file lists both tracked participants. Their boxes use the same incident
+timestamp and review state, scoped to the original analysis, camera and tracking
+session; rewinding before that timestamp clears the incident highlights.
+
+Without dates, this category searches the latest registered cases within a
+bounded 31-day window, independently of the live demo clock. Explicit dates,
+analysis and camera filters remain available. Text/voice requests for incidents,
+collisions or crashes select this category. The existing U-turn and red-light
+categories keep their own filters and labels. Case decisions remain the same
+in-memory demonstration controls described below.
+
+`tests/curated-incident.browser.mjs` checks the single result, both participants,
+lead-in, pause/rewind, evidence link and demonstration decisions on desktop and
+mobile. Supply captured Go responses through `EDGE_CURATED_FIXTURE` and the
+matching local segment through `EDGE_TEST_VIDEO`; neither footage nor captured
+private metadata is committed. All private API/media requests are intercepted,
+including when `EDGE_TEST_ORIGIN` points to the published frontend.
+
 `tests/incident-video-layout.browser.mjs` uses 30 fixture incidents and a synthetic
 60-second MP4 supplied through `EDGE_TEST_VIDEO`. It verifies decoded, visible
 playback in portrait, landscape and desktop layouts, including expanded case

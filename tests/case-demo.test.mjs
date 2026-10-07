@@ -1,9 +1,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { demoCaseKey, demoCaseNumber, demoVehicleProfile, demoCaseChange, EMPTY_DEMO_CASE } from '../src/lib/case-demo.ts';
+import { demoCaseKey, demoCaseNumber, demoVehicleProfile, demoCaseChange, EMPTY_DEMO_CASE, incidentTitle } from '../src/lib/case-demo.ts';
 
 const item = (overrides = {}) => ({ uid: 'incident-1', camera: 'seguros', kind: 'uturn', review: 'candidate',
   playback: { run_id: 'run-1', camera: 'seguros', at: 100, track_uid: 'session-1-track-4' }, ...overrides });
+
+test('the curated category keeps its own title instead of becoming a red-light infraction', () => {
+  assert.equal(incidentTitle('incidente'), 'Incidente');
+  assert.equal(incidentTitle('rojo'), 'Posible cruce en rojo');
+  assert.equal(incidentTitle('uturn'), 'Posible vuelta en U');
+});
 
 test('case state does not collide across analysis, camera or incident and does not inherit a real decision', () => {
   const original = item({ review: 'confirmed' });

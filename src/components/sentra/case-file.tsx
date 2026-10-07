@@ -33,6 +33,10 @@ export function CaseFile({ item, value, onChange, onReplay }: {
         </div>
         <p className="mt-2 font-mono text-[10px] text-text-faint" data-case-number>{number}</p>
         <h3 className="mt-2 text-[15px] leading-snug font-semibold">{incidentTitle(item.kind)}</h3>
+        {item.kind === "incidente" && <>
+          {item.details?.summary && <p className="mt-2 text-xs leading-relaxed text-text-muted">{item.details.summary}</p>}
+          {!!item.details?.participants?.length && <p className="mt-2 text-xs text-text-muted" data-incident-participants>Vehículos involucrados: {item.details.participants.map(participant => `#${participant.local_id}`).join(" · ")}</p>}
+        </>}
         {item.kind && <p className={`${styles.status} mt-2`} data-decision={value.decision} data-case-decision>{DEMO_DECISION[value.decision]} · Demo</p>}
         <div className={styles.vehicle}>
           {item.thumbnail_url && !imageFailed ? <img className={styles.thumbnail} src={item.thumbnail_url} onError={() => setImageFailed(true)} alt="Recorte de la observación" />
@@ -90,7 +94,7 @@ export function CaseFile({ item, value, onChange, onReplay }: {
     <div className={styles.actions} data-case-actions>
       {item.kind ? <>
         {value.decision === "confirmed" ? <button type="button" className={`${styles.action} ${styles.primary}`} onClick={() => dialog.current?.showModal()}>Preparar acta · Demo</button>
-          : <button type="button" className={`${styles.action} ${styles.primary}`} onClick={() => decide("confirmed")}>Confirmar infracción · Demo</button>}
+          : <button type="button" className={`${styles.action} ${styles.primary}`} onClick={() => decide("confirmed")}>Confirmar {item.kind === "incidente" ? "incidente" : "infracción"} · Demo</button>}
         <div className={styles.secondary}>
           <button type="button" className={styles.action} disabled={value.decision === "dismissed"} onClick={() => decide("dismissed")}>Descartar · Demo</button>
           <button type="button" className={styles.action} disabled={value.decision === "pending"} onClick={() => decide("pending")}>Dejar pendiente</button>
