@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useImperativeHandle, useRef, useState, type Ref } from "react";
 import { historyTime, type HistoryItem, type Playback, type ToolResult } from "@/lib/history-detections";
 import { HistoryDetectionOverlay } from "./history-detection-overlay";
-import { IncidentLegend } from "./incident-legend";
 import type { MediaCommand, PlaybackDiagnostics } from "@/lib/viewer-actions";
 import { VideoLoading } from "@/components/sentra/assistant-feedback";
 import { HISTORY_PREFETCH_SECONDS, historyBufferReady } from "@/lib/history-playback";
@@ -305,7 +304,6 @@ export function HistoryPlayer({ playback, title, item, onClose, onExpired, onRev
       <button className={button} disabled={!segment || controlling} onClick={() => void manualControl({ operation: paused || needsPlay ? "play" : "pause" })}>{paused || needsPlay ? "Reanudar" : "Pausar"}</button>
       <button className={`${button} ml-auto`} aria-pressed={boxes} onClick={() => onBoxes(!boxes)}>{boxes ? "Ocultar cajas" : "Mostrar cajas"}</button>
     </div>
-    {boxes && <IncidentLegend inspection={!!playback.track_uid} />}
     {item?.kind && <details className="shrink-0 border-t border-[var(--border)] px-3 py-2 text-xs"><summary className="cursor-pointer text-text-faint">{item.kind === "uturn" ? "Posible vuelta en U" : "Posible cruce en rojo"} · {item.review === "confirmed" ? "Confirmada en revisión" : item.review === "dismissed" ? "Descartada en revisión" : "Pendiente de revisión"}</summary><div className="mt-2 flex flex-wrap gap-2"><button disabled={reviewing} className={button} onClick={() => void review("confirmed")}>Confirmar incidencia</button><button disabled={reviewing} className={button} onClick={() => void review("dismissed")}>Descartar</button><button disabled={reviewing} className={button} onClick={() => void review("candidate")}>Dejar pendiente</button>{item.clip_url && <a href={item.clip_url} download className={button}>Descargar evidencia</a>}</div></details>}
   </section>;
 }
