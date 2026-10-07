@@ -30,7 +30,7 @@ declare global {
 }
 
 type Camera = {
-  key: string; title: string; url: string; receiving: boolean; bitrate_bps?: number;
+  key: string; title: string; url: string; preview_url?: string; receiving: boolean; bitrate_bps?: number;
   last_progress_age?: number;
   availability_note?: string;
   detections?: DetectionStatus;
@@ -58,10 +58,12 @@ const inputTime = (seconds: number) => new Date((seconds - 6 * 3600) * 1000).toI
 type VideoStage = "connecting" | "buffering" | "playing" | "paused" | "reconnecting" | "blocked" | "unsupported";
 const videoStatus: Record<VideoStage, string> = { connecting: "Conectando…", buffering: "Cargando señal…", playing: "En vivo", paused: "Pausado", reconnecting: "Reconectando…", blocked: "Pulsá reproducir", unsupported: "No se puede reproducir esta señal" };
 
-function LiveCamera({ camera, ready, playerFailed, goLive, showBoxes, fit, onPlayable }: { camera: Camera; ready: boolean; playerFailed: boolean; goLive: number; showBoxes: boolean; fit: boolean; onPlayable: () => void }) {
+function LiveCamera({ camera, ready, playerFailed, goLive, showBoxes, fit, onPlayable, onSelect }: { camera: Camera; ready: boolean; playerFailed: boolean; goLive: number; showBoxes: boolean; fit: boolean; onPlayable: () => void; onSelect: () => void }) {
   const video = useRef<HTMLVideoElement>(null);
   const fragments = useRef<VideoFragment[]>([]);
   const [stage, setStage] = useState<VideoStage>("connecting");
+  const preview = !fit && !!camera.preview_url;
+  const source = preview ? camera.preview_url! : camera.url;
   useEffect(() => {
     const element = video.current;
     if (!element || !ready || !camera.receiving) return;
@@ -101,10 +103,10 @@ function LiveCamera({ camera, ready, playerFailed, goLive, showBoxes, fit, onPla
         player.on(WindowHls.Events.FRAG_BUFFERED, remember);
         player.on(WindowHls.Events.FRAG_CHANGED, remember);
         if (WindowHls.Events.MANIFEST_PARSED) player.on(WindowHls.Events.MANIFEST_PARSED, () => { if (!closed) setStage("buffering"); });
-        player.loadSource(camera.url); player.attachMedia(element);
+        player.loadSource(source); player.attachMedia(element);
       } else if (element.canPlayType("application/vnd.apple.mpegurl")) {
         nativeInitialPosition = true;
-        element.src = camera.url;
+        element.src = source;
       }
       else setStage("unsupported");
     };
@@ -141,7 +143,7 @@ function LiveCamera({ camera, ready, playerFailed, goLive, showBoxes, fit, onPla
       element.removeEventListener("progress", positionNative);
       element.removeAttribute("src"); element.load();
     };
-  }, [camera.url, camera.receiving, ready]);
+  }, [source, camera.receiving, ready]);
   useEffect(() => {
     const element = video.current;
     if (!goLive || !element) return;
@@ -162,13 +164,13 @@ function LiveCamera({ camera, ready, playerFailed, goLive, showBoxes, fit, onPla
   const loading = ["connecting", "buffering", "reconnecting"].includes(stage) && !playerFailed;
   return <article className={`${panel} overflow-hidden ${fit ? "flex h-full min-h-0 flex-col" : ""}`} data-live-camera={camera.key}>
     <div className="flex shrink-0 items-center justify-between gap-2 px-3 py-2 font-mono text-xs">
-      <h3 className="truncate text-text">{camera.title}</h3>
+      <h3 className="min-w-0 text-text"><button type="button" onClick={onSelect} aria-label={`Ver ${camera.title}`} className="block max-w-full cursor-pointer truncate text-left underline decoration-transparent underline-offset-4 hover:text-accent hover:decoration-accent focus-visible:rounded focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent">{camera.title}</button></h3>
       <span className={camera.receiving && !playerFailed && stage !== "unsupported" ? "text-accent" : "text-warning"}>{camera.receiving ? playerFailed ? "Reproductor no disponible" : videoStatus[stage] : "Sin señal"}</span>
     </div>
     <div className={`relative bg-black ${fit ? "min-h-0 flex-1" : "aspect-video"}`}>
       <video ref={video} data-live-video={camera.key} muted autoPlay playsInline controls controlsList="nofullscreen" onLoadedData={onPlayable} className="h-full w-full object-contain" />
       {camera.detections && <LiveDetectionOverlay camera={camera.key} video={video} fragments={fragments}
-        enabled={showBoxes} receiving={camera.receiving} filter="all" />}
+        enabled={showBoxes} receiving={camera.receiving} filter="all" allowScaledVideo={preview} />}
       {camera.receiving && loading && <VideoLoading label={stage === "reconnecting" ? "Reconectando la cámara" : stage === "buffering" ? "Preparando la imagen" : "Conectando tu cámara"} reconnecting={stage === "reconnecting"} />}
       {camera.receiving && (playerFailed || stage === "unsupported") && <div role="status" className="absolute inset-0 grid place-items-center bg-[#081411]/95 px-6 text-center text-sm text-text-muted"><div><p>{playerFailed ? "No se pudo cargar el reproductor." : "Este navegador no puede reproducir la señal."}</p>{playerFailed && <button type="button" className={`${button} mt-4 text-accent`} onClick={() => window.location.reload()}>Recargar</button>}</div></div>}
       {camera.receiving && stage === "blocked" && !playerFailed && <div className="absolute inset-0 grid place-items-center bg-black/40"><button type="button" className={`${button} bg-[#0b2419] text-accent`} onClick={() => { void video.current?.play().catch(() => setStage("blocked")); }}>Reproducir video</button></div>}
@@ -321,7 +323,7 @@ export function EdgeLiveViewer() {
     {state ? <HistoryChat csrf={state.user.csrf} onExpired={expired} viewer={view} onView={changeView} cameras={state.cameras} voice={voice} deferTraffic={mode === "live" && !!camera?.receiving && !videoPlayable && !playerFailed}>
       {mode === "live" ? <div className="flex h-full min-h-0 flex-col">
         <div className={`grid min-h-0 flex-1 gap-3 ${all ? `auto-rows-max overflow-y-auto lg:grid-cols-2 ${(cameras?.length ?? 0) > 4 ? "xl:grid-cols-3" : ""}` : "grid-rows-1"}`}>
-          {(all ? cameras : camera ? [camera] : [])?.map(row => <LiveCamera key={row.key} camera={row} ready={ready} playerFailed={playerFailed} goLive={goLive} showBoxes={view.boxes} fit={!all} onPlayable={markPlayable} />)}
+          {(all ? cameras : camera ? [camera] : [])?.map(row => <LiveCamera key={row.key} camera={row} ready={ready} playerFailed={playerFailed} goLive={goLive} showBoxes={view.boxes} fit={!all} onPlayable={markPlayable} onSelect={() => changeView({ camera: row.key, all: false, mode: "live" })} />)}
         </div>
       </div> : camera && <History key={camera.key} camera={camera} onExpired={expired} />}
     </HistoryChat> : <p className="p-5 text-sm text-text-faint">Conectando con Senttra…</p>}

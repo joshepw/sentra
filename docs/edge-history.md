@@ -117,6 +117,19 @@ archive/encoding footer. Detection visibility remains part of the shared viewer
 state and voice commands. Map zoom survives camera-status polling.
 Camera selection uses the map or assistant; the standalone camera dropdown and
 live/history buttons are omitted. The header keeps only the sign-out action.
+Each camera name in the video header is also a keyboard-accessible button that
+opens that camera individually through the same viewer state. In the mosaic,
+`preview_url` is used when the backend advertises one; the individual view uses
+the full `url`. The current demo backend supplies 360p/30fps previews and retains
+720p/30fps for the individual view. Original archive recordings are unchanged.
+Previews retain fragment names, duration, timestamps and aspect ratio; the live
+overlay accepts proportional scaling only for these advertised previews and
+still rejects mismatched aspect ratios. Without `preview_url`, playback keeps
+using the original stream. The existing live playback reserve is preserved.
+`tests/mosaic-quality.browser.mjs` uses the shipped hls.js and local MPEG-TS
+fixtures (`EDGE_TEST_HLS` with `full`/`preview` folders) to check decoded sizes,
+box alignment, name clicks/keyboard activation, returning to the mosaic and
+compatibility with backends that do not offer previews.
 The period selector and analysis-status row are also omitted. Coverage polling
 selects the live analysis for the chart and new undated searches; it does not
 silently fall back to an archived period. Explicit dated searches remain available
