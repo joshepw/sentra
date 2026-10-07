@@ -112,7 +112,12 @@ try {
     };
     const seek = async (seconds, raw = false) => {
       await page.locator(raw ? '[data-history-video]' : '[data-result-video]').evaluate((video, at) => { video.pause(); video.currentTime = at; }, seconds);
-      await page.waitForFunction(at => Math.abs(Number(document.querySelector('[data-history-overlay]')?.dataset.time) - at) < .05, started + seconds);
+      await page.waitForFunction(({ at, raw }) => {
+        const video = document.querySelector(raw ? '[data-history-video]' : '[data-result-video]');
+        const canvas = document.querySelector('[data-history-overlay]');
+        return video && !video.seeking && video.readyState >= 2 && Number(canvas?.dataset.boxes) > 0
+          && Math.abs(Number(canvas.dataset.time) - at) < .05;
+      }, { at: started + seconds, raw });
       return drawing();
     };
     const check = (name, state) => evidence.checks.push({ viewport, check: name, state });
