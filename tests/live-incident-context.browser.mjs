@@ -44,7 +44,8 @@ try {
           offset: (index % 20) / 10, captured_at: 1700000000 + index / 10, sequence: index * 10000 + revision,
           width: 1280, height: 720, region_revision: 20,
           objects: [42, 43, 44, 55].map((id, position) => ({ id, class_id: 2, label: 'Auto', score: .95,
-            box: [.02 + position * .24, .45, .22 + position * .24, .8] })),
+            box: [.01 + position * .24, .43, .21 + position * .24, .78],
+            display_box: [.02 + position * .24, .45, .22 + position * .24, .8] })),
         }));
         this.listeners.frames?.({ data: JSON.stringify({ frames }) });
       }
@@ -76,7 +77,10 @@ try {
     return videos.length === count && videos.every(video => video.videoWidth === width && video.readyState >= 2);
   }, { count, width });
   const snapshot = async camera => {
-    const state = await page.locator(`[data-detection-overlay="${camera}"]`).evaluate(canvas => ({ drawn: canvas.drawn, at: Number(canvas.dataset.time), incidents: canvas.dataset.incidents }));
+    const state = await page.locator(`[data-detection-overlay="${camera}"]`).evaluate(canvas => {
+      const rect = canvas.getBoundingClientRect();
+      return { drawn: canvas.drawn, at: Number(canvas.dataset.time), incidents: canvas.dataset.incidents, width: rect.width, height: rect.height };
+    });
     assert(state.drawn.every(call => call.dash.length === 0));
     state.colors = state.drawn.filter(call => call.name === 'strokeRect' && call.color !== '#00150d').map(call => call.color);
     return state;
@@ -98,6 +102,10 @@ try {
   for (const [camera] of cameras) {
     const state = await seek(camera, 25);
     assert.deepEqual(state.colors, ['#57f1aa', '#57f1aa', '#ffdb68', '#ff5263']);
+    const box = state.drawn.find(call => call.name === 'strokeRect' && call.color === '#ffdb68').args;
+    const scale = Math.min(state.width / 1280, state.height / 720), width = 1280 * scale, height = 720 * scale;
+    assert(Math.abs(box[0] - ((state.width - width) / 2 + .02 * width)) < .001);
+    assert(Math.abs(box[1] - ((state.height - height) / 2 + .45 * height)) < .001);
   }
   assert(evidence.media.every(row => row.quality === 'preview'));
   evidence.checks.push('All seven 360p streams render both incidents with the same solid status colors');

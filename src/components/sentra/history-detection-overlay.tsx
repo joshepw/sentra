@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type RefObject } from "react";
-import { containedVideo } from "@/lib/live-detections";
+import { containedVideo, displayDetections } from "@/lib/live-detections";
 import { historyFrameAt, type HistoryFrame, type HistoryIncident, type HistoryItem, type Playback } from "@/lib/history-detections";
 import { incidentAt, indexIncidents } from "@/lib/incident-overlays";
 import { drawDetection } from "./detection-drawing";
@@ -35,7 +35,7 @@ export function HistoryDetectionOverlay({ camera, segment, runId, trackUid, item
         if (response.status === 401) { onExpired(); return; }
         if (!response.ok) throw new Error("No se pudieron cargar las detecciones de este tramo.");
         const value: Omit<Data, "key"> = await response.json();
-        if (!abort.signal.aborted) { setData({ ...value, key, incidents: value.incidents ?? [] }); setError(""); }
+        if (!abort.signal.aborted) { setData({ ...value, frames: value.frames.map(displayDetections), key, incidents: value.incidents ?? [] }); setError(""); }
       } catch (reason) { if (!abort.signal.aborted) { setData({ key, frames: [], incidents: [], focus: null }); setError((reason as Error).message); } }
     };
     void load(); return () => abort.abort();

@@ -62,7 +62,7 @@ cannot promote an earlier pending event. Dismissed events do not color a vehicle
 Selection keeps the same status color and adds a second, solid white outline and
 “Inspeccionando”. Ordinary vehicles are green, people blue. Both dashed vehicle
 boxes and the old dashed stop-band rectangle are removed; selection trajectories
-use white and stop at the displayed instant. The legend follows box visibility.
+use white and stop at the displayed instant. Status labels stay inside the video.
 
 The shared drawing/classification functions serve live mosaic/single-camera
 streams and historical playback. `HistoryDetectionOverlay` covers incident,
