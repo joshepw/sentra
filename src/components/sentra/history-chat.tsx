@@ -33,6 +33,7 @@ export function HistoryChat({ csrf, onExpired, viewer, onView, cameras, children
   const mapCameras = useMemo(() => cameras.map(camera => ({ id: camera.key, nombre: camera.title, n_giro: 0, n_rojo: 0 })), [cameras]);
   const [text, setText] = useState(""), [result, setResult] = useState<ToolResult | null>(null);
   const [busy, setBusy] = useState(false), [phase, setPhase] = useState(""), [error, setError] = useState("");
+  const [answerReady, setAnswerReady] = useState(false);
   const [selection, setSelection] = useState<{ playback: Playback; item?: HistoryItem } | null>(null);
   const [recording, setRecording] = useState(false), [paging, setPaging] = useState(false);
   const abort = useRef<AbortController | null>(null), mounted = useRef(true), sending = useRef(false);
@@ -81,7 +82,7 @@ export function HistoryChat({ csrf, onExpired, viewer, onView, cameras, children
   const send = async (question: string, sound?: { audio: string; mime: string }) => {
     if (sending.current || (!question.trim() && !sound)) return;
     const voiceRequest = voice.prepare();
-    sending.current = true; setBusy(true); setPhase(sound ? "transcribing" : "planning"); setError(""); setText("");
+    sending.current = true; setBusy(true); setAnswerReady(false); setPhase(sound ? "transcribing" : "planning"); setError(""); setText("");
     abort.current?.abort(); const controller = new AbortController(); abort.current = controller;
     try {
       const snapshot = current.current, expectedRevision = revision();
@@ -105,13 +106,34 @@ export function HistoryChat({ csrf, onExpired, viewer, onView, cameras, children
         else if (value.playback) { choose({ playback: value.playback }); onView({ camera: value.playback.camera, all: false }); }
         else showResult(value);
         resultReceived = true;
+        setAnswerReady(true);
+      };
+      const pollJob = async () => {
+        // A phone can stall one request while the video keeps the other connections.
+        // Give up that attempt and ask again, so the list is not stuck behind the audio.
+        const attempt = new AbortController();
+        const timer = setTimeout(() => attempt.abort(), 8000);
+        const abort = () => attempt.abort();
+        controller.signal.addEventListener("abort", abort);
+        try {
+          const response = await fetch(`/edge/api/history/chat/${job.id}`, { cache: "no-store", signal: attempt.signal });
+          if (response.status === 401) { onExpired(); return null; }
+          if (!response.ok) throw new Error("No se pudo recuperar la consulta.");
+          return await response.json() as Job;
+        } finally {
+          clearTimeout(timer);
+          controller.signal.removeEventListener("abort", abort);
+        }
       };
       while (["queued", "working", "waiting_action"].includes(job.status)) {
         if (controller.signal.aborted) return;
         setPhase(job.phase);
         if (job.result && !resultReceived) receive(job.result);
         // eslint-disable-next-line react-hooks/purity -- Elapsed time in the same event-driven poll.
-        if (performance.now() > deadline) throw new Error("La consulta sigue demorando. Podés volver a intentar en un momento.");
+        if (performance.now() > deadline) {
+          if (resultReceived) break;
+          throw new Error("La consulta sigue demorando. Podés volver a intentar en un momento.");
+        }
         if (job.status === "waiting_action" && job.action) {
           if (!actionReceipt) {
             actionReceipt = { status: "stale" };
@@ -166,10 +188,16 @@ export function HistoryChat({ csrf, onExpired, viewer, onView, cameras, children
           catch (reason) { if ((reason as { status?: number }).status !== 429) throw reason; }
         }
         await new Promise(resolve => setTimeout(resolve, 1000));
-        const response = await fetch(`/edge/api/history/chat/${job.id}`, { cache: "no-store", signal: controller.signal });
-        if (response.status === 401) { onExpired(); return; }
-        if (!response.ok) throw new Error("No se pudo recuperar la consulta.");
-        job = await response.json();
+        try {
+          const next = await pollJob();
+          if (!next) return;
+          job = next;
+        } catch (reason) {
+          if (controller.signal.aborted) return;
+          // Keep the results on screen and ask for the job again.
+          if ((reason as Error).message !== "No se pudo recuperar la consulta.") continue;
+          throw reason;
+        }
       }
       if (job.status === "failed") throw new Error(job.error || "No se pudo completar la consulta.");
       if (job.result) {
@@ -258,7 +286,7 @@ export function HistoryChat({ csrf, onExpired, viewer, onView, cameras, children
       <div className="h-full min-h-0 min-w-0 basis-[88%] shrink-0 snap-start" aria-label="Mapa del corredor"><CameraMap cams={mapCameras} sel={Math.max(0, cameras.findIndex(camera => camera.key === viewer.camera))} onPick={index => { choose(null); onView({ camera: cameras[index].key, all: false }); }} admin={false} api="" token="" loadSavedLayout={false} compact /></div>
       <div className="h-full min-h-0 min-w-0 basis-[88%] shrink-0 snap-start"><EdgeTrafficChart camera={viewer.camera} title={cameraTitle(viewer.camera)} run={liveRun} onExpired={onExpired} defer={deferTraffic} /></div>
     </div>
-    <div className="grid min-h-0 flex-1 grid-rows-[minmax(120px,1fr)_minmax(96px,1fr)] gap-3 px-3 pb-3 sm:px-5 lg:grid-cols-[minmax(0,1fr)_320px] lg:grid-rows-1">
+    <div className={`grid min-h-0 flex-1 gap-3 px-3 pb-3 sm:px-5 lg:grid-cols-[minmax(0,1fr)_320px] lg:grid-rows-1 ${answerReady ? "grid-rows-[minmax(88px,0.7fr)_minmax(180px,1.3fr)]" : "grid-rows-[minmax(120px,1fr)_minmax(96px,1fr)]"}`}>
       <div className="min-h-0 min-w-0" aria-label="Panel de video">
         {selection ? <HistoryPlayer key={`${selection.playback.camera}:${selection.playback.at}:${selection.playback.track_uid ?? selection.playback.incident_uid ?? ""}`} controlRef={player} playback={selection.playback} title={cameraTitle(selection.playback.camera)} item={selection.item} onClose={() => choose(null)} onExpired={onExpired} onReview={review} boxes={viewer.boxes} onBoxes={boxes => onView({ boxes })} /> : <div className="h-full min-h-0 overflow-y-auto rounded-xl" data-camera-view>{children}</div>}
       </div>
@@ -266,13 +294,14 @@ export function HistoryChat({ csrf, onExpired, viewer, onView, cameras, children
         <div className="shrink-0 border-b border-[var(--border)] px-3 py-1 lg:py-2" data-result-context>
           <div className="flex items-center justify-between gap-2">
           <h2 className="text-sm">{outsideHours ? "Fuera del horario de búsqueda" : result?.total !== undefined ? `${result.total} ${result.counting === "candidate_events" ? result.total === 1 ? "incidencia" : "incidencias" : result.total === 1 ? "aparición" : "apariciones"}` : "Resultados"}</h2>
-          {selectedIndex >= 0 && <div className="flex items-center gap-2"><span className="text-xs text-accent">{selectedIndex + 1} / {result?.total ?? result?.items?.length}</span><button className={button} aria-label="Resultado anterior" disabled={busy || paging || selectedIndex === 0} onClick={() => void manualNavigate("previous")}>←</button><button className={button} aria-label="Siguiente resultado" disabled={busy || paging || (selectedIndex === (result?.items?.length ?? 0) - 1 && !result?.next_cursor)} onClick={() => void manualNavigate("next")}>→</button></div>}
+          {selectedIndex >= 0 && <div className="flex items-center gap-2"><span className="text-xs text-accent">{selectedIndex + 1} / {result?.total ?? result?.items?.length}</span><button className={button} aria-label="Resultado anterior" disabled={(busy && !answerReady) || paging || selectedIndex === 0} onClick={() => void manualNavigate("previous")}>←</button><button className={button} aria-label="Siguiente resultado" disabled={(busy && !answerReady) || paging || (selectedIndex === (result?.items?.length ?? 0) - 1 && !result?.next_cursor)} onClick={() => void manualNavigate("next")}>→</button></div>}
           </div>
           {criteria && <p className="mt-1 text-[11px] leading-snug text-text-muted">{criteria}</p>}
           {range && <p className="mt-0.5 text-[11px] leading-snug text-text-faint">{range}</p>}
+          {busy && answerReady && phase === "voice" && <p className="mt-1 text-[11px] leading-snug text-text-faint" data-voice-pending>Preparando el audio…</p>}
           {searchHours && <p className="mt-0.5 text-[11px] leading-snug text-text-muted">Solo {searchHours.start}–{searchHours.end} HN, cada día</p>}
         </div>
-        {busy && <div className="shrink-0 px-3 pt-2 lg:pt-3"><AssistantProgress phase={phase} /></div>}
+        {busy && !answerReady && <div className="shrink-0 px-3 pt-2 lg:pt-3"><AssistantProgress phase={phase} /></div>}
         <div className="min-h-0 flex-1 space-y-2 overflow-y-auto overscroll-contain p-2 lg:p-3" data-result-list>
           {!result && !busy && <div className="space-y-3 py-3 text-sm text-text-faint"><p>Búsqueda de personas, vehículos e incidencias por texto o voz.</p><div className="flex flex-wrap gap-2">{[["Pailas rojas", "Mostrar las pailas rojas"], ["Vueltas en U", "Mostrar las vueltas en U"], ["Cruces en rojo", "Mostrar los cruces en rojo"], ["Cobertura", "Qué cámaras y horas tienen detecciones guardadas"]].map(([label, question]) => <button key={label} className={button} disabled={busy || recording} onClick={() => void send(question)}>{label}</button>)}</div><p className="text-xs leading-relaxed">“Mostrar Little Caesars a las 7 de la mañana” abre la grabación de hoy. También podés indicar una fecha, pausar o retroceder diez segundos.</p></div>}
           {result?.coverage && <p className="hidden text-[11px] leading-relaxed text-text-faint lg:block">{result.counting !== "candidate_events" && "Una misma unidad puede aparecer más de una vez. "}{result.coverage.runs.some(run => run.kind === "archive" && run.status !== "complete") ? "Cobertura parcial: solo los momentos analizados." : "Resultados de los momentos analizados."}</p>}
@@ -281,9 +310,9 @@ export function HistoryChat({ csrf, onExpired, viewer, onView, cameras, children
           {result?.items?.length === 0 && <p className="py-3 text-sm text-text-faint">{outsideHours ? "Las búsquedas de vehículos por tipo o color están disponibles de 7 a. m. a 6 p. m., hora de Honduras." : "Sin coincidencias en el historial procesado para esos filtros."}</p>}
           {result?.items?.map((item, index) => <article key={item.uid} data-result-number={index + 1} aria-current={selection?.item?.uid === item.uid ? "true" : undefined} className={`flex gap-3 rounded-lg border p-2 lg:p-3 ${selection?.item?.uid === item.uid ? "border-accent/60 bg-[#123a2a]/50" : "border-[var(--border)] bg-[#09150f]"}`}>
             {item.thumbnail_url && <img src={item.thumbnail_url} alt={vehicleName(item.type, item.color, item.class_id)} loading="lazy" className="h-16 w-20 shrink-0 rounded-md object-contain" />}
-            <div className="min-w-0 flex-1"><p className="text-sm text-text"><span className="mr-1 font-mono text-accent">{index + 1}.</span>{item.kind ? item.kind === "uturn" ? "Posible vuelta en U" : "Posible cruce en rojo" : vehicleName(item.type, item.color ?? "Color sin determinar", item.class_id)}</p><p className="mt-1 text-xs text-text-faint">{item.title}</p><p className="mt-1 text-xs text-text-faint">{historyTime(item.at ?? item.best_time ?? item.first ?? item.playback.at)}</p>{item.kind && <p className="mt-1 text-xs text-warning">{item.review === "confirmed" ? "Confirmada en revisión" : item.review === "dismissed" ? "Descartada" : "Pendiente de revisión"}</p>}{item.similarity !== undefined && <p className="mt-1 text-xs text-warning">Similitud visual: {item.similarity.toFixed(3)}</p>}<div className="mt-2 flex flex-wrap gap-2"><button className={button} onClick={() => { choose({ playback: item.playback, item }); onView({ camera: item.camera, all: false }); }}>Ver video</button>{!item.kind && <button className={button} disabled={paging || busy} onClick={() => void compare(item.uid)}>Otras cámaras</button>}</div></div>
+            <div className="min-w-0 flex-1"><p className="text-sm text-text"><span className="mr-1 font-mono text-accent">{index + 1}.</span>{item.kind ? item.kind === "uturn" ? "Posible vuelta en U" : "Posible cruce en rojo" : vehicleName(item.type, item.color ?? "Color sin determinar", item.class_id)}</p><p className="mt-1 text-xs text-text-faint">{item.title}</p><p className="mt-1 text-xs text-text-faint">{historyTime(item.at ?? item.best_time ?? item.first ?? item.playback.at)}</p>{item.kind && <p className="mt-1 text-xs text-warning">{item.review === "confirmed" ? "Confirmada en revisión" : item.review === "dismissed" ? "Descartada" : "Pendiente de revisión"}</p>}{item.similarity !== undefined && <p className="mt-1 text-xs text-warning">Similitud visual: {item.similarity.toFixed(3)}</p>}<div className="mt-2 flex flex-wrap gap-2"><button className={button} onClick={() => { choose({ playback: item.playback, item }); onView({ camera: item.camera, all: false }); }}>Ver video</button>{!item.kind && <button className={button} disabled={paging || (busy && !answerReady)} onClick={() => void compare(item.uid)}>Otras cámaras</button>}</div></div>
           </article>)}
-          {result?.next_cursor && <button className={`${button} w-full`} disabled={paging || busy} onClick={() => void more()}>{paging ? "Cargando…" : "Ver más resultados"}</button>}
+          {result?.next_cursor && <button className={`${button} w-full`} disabled={paging || (busy && !answerReady)} onClick={() => void more()}>{paging ? "Cargando…" : "Ver más resultados"}</button>}
           {result?.runs?.map(run => <p key={run.id} className="text-xs text-text-faint">{run.title} · {run.cameras.length} cámaras · {run.status === "complete" ? "Completo" : "Parcial"} · {historyTime(run.started)}{run.ended ? ` a ${historyTime(run.ended)}` : " en adelante"}</p>)}
           {result?.cameras?.map(camera => <p key={camera.camera} className={`text-xs ${camera.receiving ? "text-accent" : "text-warning"}`}>{camera.title}: {camera.receiving ? "con señal" : "sin señal"}</p>)}
         </div>
