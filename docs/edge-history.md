@@ -54,15 +54,40 @@ preceding observation. Gaps clear boxes. Incident trajectories stop at the
 playback time. Review decisions retain the original candidate evidence.
 Cross-camera cosine similarity produces suggestions, never a confirmed identity.
 
-When reviewing an incident, the selected vehicle keeps a solid yellow box.
-Other visible vehicles with recorded candidate or confirmed incidents use dashed
-orange boxes and labels describing the maneuver and review status. Ordinary
-detections stay green. The legend is shown below the video when boxes are enabled.
+Incident colors are independent of the query or viewer: solid yellow means
+candidate/pending review, and solid red means confirmed in human review. They
+begin at the incident's recorded timestamp and remain while that tracked vehicle
+is visible. Rewinding before the event removes its color; a later confirmed event
+cannot promote an earlier pending event. Dismissed events do not color a vehicle.
+Selection keeps the same status color and adds a second, solid white outline and
+“Inspeccionando”. Ordinary vehicles are green, people blue. Both dashed vehicle
+boxes and the old dashed stop-band rectangle are removed; selection trajectories
+use white and stop at the displayed instant. The legend follows box visibility.
+
+The shared drawing/classification functions serve live mosaic/single-camera
+streams and historical playback. `HistoryDetectionOverlay` covers incident,
+vehicle/person and camera/time results as well as the saved-segment camera browser.
 The Go `/frames` response includes `incidents` for tracks overlapping the requested
-recording, including maneuvers completed in adjacent segments. The lookup is
-independent of search filters and result pagination, excludes dismissed incidents,
-and matches camera, analysis and tracking session before using a numeric track ID.
-No new detections are inferred from proximity and the archive is not changed.
+recording, including maneuvers in adjacent segments. The lookup is independent of
+search filters and result pagination, and matches camera, analysis and tracking
+session before using a numeric track ID. No proximity-based incidents are added.
+
+Live SSE `state` messages now add a current `incidents` snapshot on the existing
+two-second heartbeat, covering the 180-second retained window. Review changes
+replace the snapshot, including while video is paused; no query runs per frame.
+The active demo uses its historical product date. Playback uses demuxed fragment
+offsets; held demo observations include `segment_started_at` to preserve the
+fragment clock independently of their older observation timestamp. Missing or
+invalid context never invents incident colors. Original recordings are unchanged.
+
+`tests/incident-overlays.test.mjs` exercises temporal priority, rewind, identity
+isolation, malformed metadata and fragment clocks. `tests/incident-context.browser.mjs`
+uses a synthetic MP4 to test selection, review changes, person search, direct
+camera/time playback and saved segments on mobile/desktop.
+`tests/live-incident-context.browser.mjs` uses the shipped hls.js with local full/
+preview MPEG-TS fixtures to verify all seven streams, both sizes, causal seeking,
+review refresh and tracker resets. Both browser tests intercept every private API
+and media request and accept a published `EDGE_TEST_ORIGIN`.
 
 Validation: `npm run build`, ESLint on the changed files, and
 `node --test tests/*test.mjs`. `tests/history-chat.browser.mjs` expects an isolated
