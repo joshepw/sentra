@@ -65,6 +65,13 @@ Deployment requires the matching history/chat backend before this frontend.
 Rollback can revert the frontend commit independently; retaining the durable
 history and original recordings preserves all collected data.
 
+`tests/incident-video-layout.browser.mjs` uses 30 fixture incidents and a synthetic
+60-second MP4 supplied through `EDGE_TEST_VIDEO`. It verifies decoded, visible
+playback in portrait, landscape and desktop layouts, including expanded review
+controls and switching results. `EDGE_TEST_ORIGIN` may point at a local production
+build or the published site: all private API and media requests are intercepted,
+so the check requires no login and does not read or change camera data.
+
 ## Conversational viewer prototype
 
 Each question includes the current camera, box visibility, live analysis/filter context
@@ -91,7 +98,11 @@ paths are unchanged.
 
 The corridor map stays above the video, beside a compact hourly traffic chart.
 On phones, this overview scrolls horizontally; the video and composer keep their
-own space. The live camera card omits the old box/filter/fullscreen toolbar and
+own space. Opening a recorded result gives the player enough height for its image,
+controls and incident review. On small screens, the map and result panels can
+scroll vertically while the composer stays on screen; selecting another result
+brings its video into view. Expanding an incident review cannot collapse the image.
+The live camera card omits the old box/filter/fullscreen toolbar and
 archive/encoding footer. Detection visibility remains part of the shared viewer
 state and voice commands. Map zoom survives camera-status polling.
 Camera selection uses the map or assistant; the standalone camera dropdown and
