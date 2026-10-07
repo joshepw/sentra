@@ -30,6 +30,7 @@ try {
     await page.route('**/*', route => new URL(route.request().url()).origin === origin ? route.continue() : route.abort());
     await page.route('**/edge/auth/**', route => route.abort());
     await page.route('**/edge/media/**', route => route.abort());
+    await page.route('**/missing-crop.jpg', route => route.fulfill({ status: 404, body: '' }));
     await page.route('**/case-thumbnail.svg', route => route.fulfill({ contentType: 'image/svg+xml', body: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 110"><rect width="180" height="110" fill="#1c2e25"/><path d="M0 95L180 30" stroke="#778078" stroke-width="45"/><rect x="60" y="30" rx="15" width="64" height="52" fill="#b4bebb"/><rect x="69" y="43" width="46" height="25" rx="5" fill="#354b47"/><path d="M61 44v-8m62 8v-8M61 80v-8m62 8v-8" stroke="#111" stroke-width="8"/></svg>' }));
     await page.route('**/case-fixture.mp4', route => {
       const range = /^bytes=(\d+)-(\d*)$/.exec(route.request().headers().range ?? '');
@@ -49,6 +50,7 @@ try {
         let result = { items: items.slice(0, 12), total: 18, next_cursor: 'page-2', counting: 'candidate_events', filters: { kind: 'uturn' } };
         if (mode === 'person') result = { total: 1, items: [{ ...items[0], uid: 'person-1', kind: undefined, type: 'persona', class_id: 0 }], counting: 'appearances' };
         if (mode === 'vehicle') result = { total: 1, items: [{ ...items[0], uid: 'vehicle-1', kind: undefined }], counting: 'appearances' };
+        if (mode === 'missing-crop' || mode === 'broken-crop') result = { total: 1, items: [{ ...items[0], uid: mode, thumbnail_url: mode === 'missing-crop' ? null : '/missing-crop.jpg' }] };
         if (mode === 'other-camera') result = { total: 1, items: [{ ...items[3], camera: 'little', title: 'Little Caesars', playback: { ...items[3].playback, camera: 'little' } }] };
         if (mode === 'time') result = { playback: { camera: 'seguros', at: started + 14, run_id: 'fixture', source: 'camera_time', segment_id: 'fixture-segment' } };
         body = { id: 'a'.repeat(32), status: 'complete', phase: 'complete', result };
@@ -80,6 +82,7 @@ try {
     await page.getByRole('heading', { name: '18 incidencias', exact: true }).waitFor();
     assert(await caseTab.isDisabled());
     await page.locator('[data-result-number="4"]').scrollIntoViewIfNeeded();
+    await page.waitForFunction(() => document.querySelector('[data-result-number="4"] img')?.naturalWidth > 0);
     const scrollBefore = await page.locator('[data-result-list]').evaluate(element => element.scrollTop);
     await open(4);
     assert.equal(await caseTab.getAttribute('aria-selected'), 'true');
@@ -89,6 +92,15 @@ try {
     await page.evaluate(() => { window.caseVideo = document.querySelector('[data-result-video]'); window.caseTime = window.caseVideo.currentTime; });
     const plate = await page.locator('[data-demo-plate]').innerText();
     const number = await page.locator('[data-case-number]').innerText();
+    await page.waitForFunction(() => {
+      const crop = document.querySelector('[data-case-file] img[alt="Recorte de la observación"]');
+      const portrait = document.querySelector('[data-demo-portrait]');
+      return crop?.naturalWidth > 0 && portrait?.naturalWidth === 200 && portrait?.naturalHeight === 250;
+    });
+    const portraitSource = await page.locator('[data-demo-portrait]').getAttribute('src');
+    assert(await page.locator('[data-demo-owner]').getByText('Foto ficticia', { exact: true }).isVisible());
+    assert(await page.getByText('Sin identificar', { exact: true }).isVisible());
+    check(`${viewport.width}: incident crop loads in list and case; shipped fictional portrait is visible without expanding details`);
     const caseRect = await page.getByRole('complementary', { name: 'Resultados de la consulta' }).boundingBox();
     if (viewport.width >= 1024) {
       assert(Math.abs(caseRect.width - 340) <= 1);
@@ -120,7 +132,7 @@ try {
     assert(await page.evaluate(() => window.caseVideo === document.querySelector('[data-result-video]')));
     check(`${viewport.width}: replay returns to the evidence timestamp and preserves paused video`);
 
-    await page.getByText('Titular registrado', { exact: false }).click();
+    await page.getByText('Identificación y licencia simuladas', { exact: true }).click();
     await page.getByText('Sin identificar', { exact: true }).waitFor();
     await page.getByRole('textbox', { name: /Observación del agente/ }).fill('Se revisó el tramo completo. Nota de demostración.');
     await page.getByRole('button', { name: 'Confirmar infracción · Demo', exact: true }).click();
@@ -133,6 +145,8 @@ try {
     assert((await report.innerText()).includes(plate));
     assert((await report.innerText()).includes(number));
     assert((await report.innerText()).includes('Se revisó el tramo completo.'));
+    await page.waitForFunction(() => document.querySelector('[data-report-portrait]')?.naturalWidth > 0);
+    assert.equal(await report.locator('[data-report-portrait]').getAttribute('src'), portraitSource);
     await page.screenshot({ path: `${output}/${viewport.width}-report.png` });
     await page.keyboard.press('Escape');
     assert(!(await report.isVisible()));
@@ -141,6 +155,7 @@ try {
     assert.match(await page.locator('[data-case-decision]').innerText(), /Pendiente/);
     await page.getByRole('button', { name: 'Resultado anterior', exact: true }).click();
     assert.equal(await page.locator('[data-demo-plate]').innerText(), plate);
+    assert.equal(await page.locator('[data-demo-portrait]').getAttribute('src'), portraitSource);
     assert.match(await page.getByRole('textbox', { name: /Observación del agente/ }).inputValue(), /tramo completo/);
     assert.match(await page.locator('[data-case-decision]').innerText(), /Confirmada/);
     await page.getByRole('button', { name: 'Descartar · Demo', exact: true }).click();
@@ -180,7 +195,15 @@ try {
     check(`${viewport.width}: next-case navigation loads only the required result page`);
     await query('person'); await open(1);
     assert.equal(await page.locator('[data-demo-plate]').count(), 0);
+    assert.equal(await page.locator('[data-demo-portrait]').count(), 0);
     assert.equal(await page.getByRole('button', { name: 'Confirmar infracción · Demo', exact: true }).count(), 0);
+    for (const cropMode of ['missing-crop', 'broken-crop']) {
+      await query(cropMode); await open(1);
+      await page.getByText('Sin recorte disponible', { exact: true }).waitFor();
+      await page.waitForFunction(() => document.querySelector('[data-demo-portrait]')?.naturalWidth > 0);
+      assert.equal(await page.locator('[data-case-file] img[alt="Recorte de la observación"]').count(), 0);
+    }
+    check(`${viewport.width}: absent and failed evidence crops keep their own fallback and never use a portrait`);
     await query('vehicle'); await open(1);
     assert.equal(await page.locator('[data-demo-plate]').count(), 1);
     assert.equal(await page.getByRole('button', { name: 'Confirmar infracción · Demo', exact: true }).count(), 0);

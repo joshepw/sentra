@@ -53,6 +53,28 @@ export function CaseFile({ item, value, onChange, onReplay }: {
         {profile && <p className="mt-2 text-[10px] leading-relaxed text-text-faint">La placa y el titular son datos de ejemplo.</p>}
       </section>
 
+      {profile && <section className={styles.section} data-demo-owner>
+        <p className={styles.eyebrow}>Titular registrado <span className="text-warning">· Simulado</span></p>
+        <div className={styles.owner}>
+          <figure className={styles.portrait}>
+            <img src={profile.portrait} width={64} height={80} alt={`Retrato ficticio de ${profile.owner}`} data-demo-portrait />
+            <figcaption>Foto ficticia</figcaption>
+          </figure>
+          <div className="min-w-0">
+            <p className="text-sm font-medium">{profile.owner}</p>
+            <p className="mt-1 text-[10px] text-text-faint">Datos de ejemplo</p>
+            <p className="mt-2 text-xs text-text-muted">Conductor: <span>Sin identificar</span></p>
+          </div>
+        </div>
+        <details className={`${styles.details} mt-3`}>
+          <summary>Identificación y licencia simuladas</summary>
+          <dl>
+            <div><dt>Identificación simulada</dt><dd>{profile.document}</dd></div>
+            <div><dt>Licencia simulada</dt><dd>{profile.license}</dd></div>
+          </dl>
+        </details>
+      </section>}
+
       <section className={styles.section}>
         <p className={styles.eyebrow}>Evidencia de cámara</p>
         <p className="mt-2 text-xs">{item.title || item.camera}</p>
@@ -64,16 +86,6 @@ export function CaseFile({ item, value, onChange, onReplay }: {
         </div>
         {error && <p role="alert" className="mt-2 text-xs text-warning">{error}</p>}
       </section>
-
-      {profile && <details className={`${styles.section} ${styles.details}`}>
-        <summary><span>Titular registrado <span className="ml-1 text-[10px] text-warning">Simulado</span></span></summary>
-        <dl>
-          <div><dt>Nombre de ejemplo</dt><dd>{profile.owner}</dd></div>
-          <div><dt>Identificación simulada</dt><dd>{profile.document}</dd></div>
-          <div><dt>Licencia simulada</dt><dd>{profile.license}</dd></div>
-          <div><dt>Conductor</dt><dd>Sin identificar</dd></div>
-        </dl>
-      </details>}
 
       <section className={styles.section}>
         <label htmlFor="case-review-note" className="text-xs">Observación del agente <span className="text-text-faint">· Demo</span></label>
@@ -114,7 +126,13 @@ export function CaseFile({ item, value, onChange, onReplay }: {
           <div><dt>Fecha y hora de la evidencia</dt><dd>{historyTime(at)} · Honduras</dd></div>
           <div><dt>Cámara</dt><dd>{item.title || item.camera}</dd></div>
           <div><dt>Decisión de demostración</dt><dd>{DEMO_DECISION[value.decision]}</dd></div>
-          {profile && <><div><dt>Placa simulada</dt><dd>{profile.plate}</dd></div><div><dt>Titular simulado</dt><dd>{profile.owner}</dd></div></>}
+          {profile && <><div><dt>Placa simulada</dt><dd>{profile.plate}</dd></div><div><dt>Titular simulado</dt><dd className={styles.owner}>
+            <figure className={styles.portrait}>
+              <img src={profile.portrait} width={64} height={80} alt={`Retrato ficticio de ${profile.owner}`} data-report-portrait />
+              <figcaption>Foto ficticia</figcaption>
+            </figure>
+            <span>{profile.owner}</span>
+          </dd></div></>}
         </dl>
         <p className={styles.eyebrow}>Observación del agente</p>
         <p className="mt-2 break-words whitespace-pre-wrap text-sm leading-relaxed">{value.note || "Sin observación adicional."}</p>

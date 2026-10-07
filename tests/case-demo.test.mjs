@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { accessSync } from 'node:fs';
 import { demoCaseKey, demoCaseNumber, demoVehicleProfile, demoCaseChange, EMPTY_DEMO_CASE, incidentTitle } from '../src/lib/case-demo.ts';
 
 const item = (overrides = {}) => ({ uid: 'incident-1', camera: 'seguros', kind: 'uturn', review: 'candidate',
@@ -30,6 +31,17 @@ test('multiple incidents on the same observed track share a simulated profile, o
 test('person observations never receive invented vehicle or registered-owner data', () => {
   assert.equal(demoVehicleProfile(item({ type: 'persona' })), null);
   assert.equal(demoVehicleProfile(item({ class_id: 0 })), null);
+});
+
+test('every simulated profile references a shipped fictional portrait', () => {
+  const portraits = new Set();
+  for (let index = 0; index < 80; index++) {
+    const profile = demoVehicleProfile(item({ track_uid: `fictional-track-${index}` }));
+    assert.match(profile.portrait, /^\/senttra\/demo-portraits\/[hm]\d\.webp$/);
+    accessSync(new URL(`../public${profile.portrait}`, import.meta.url));
+    portraits.add(profile.portrait);
+  }
+  assert.equal(portraits.size, 5);
 });
 
 test('demo decisions snapshot notes, preserve the source item, and remain reversible without duplicate events', () => {
