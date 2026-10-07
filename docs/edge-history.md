@@ -145,7 +145,11 @@ The file uses the actual observation's camera, timestamp, thumbnail, vehicle
 attributes and saved review. `Volver al momento` seeks the current player to that
 observation while preserving pause/play. Existing clip downloads are still available.
 Example plate and registered-owner details are deterministic per analysis, camera
-and track, explicitly marked as simulated. The driver remains unidentified.
+and track, explicitly marked as simulated. The owner name and fictional portrait
+are visible when opening the case; the document and license remain expandable.
+The same portrait appears in the demo report. The five existing AI portraits from
+the DNVT demo are shipped under `public/senttra/demo-portraits`, independent of
+legacy data endpoints. The driver remains unidentified.
 Person results do not receive a simulated vehicle or owner. Results without an
 incident support notes and playback but do not acquire an invented violation.
 

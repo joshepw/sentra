@@ -31,10 +31,18 @@ export function demoVehicleProfile(item: HistoryItem) {
   if (item.type === "persona" || item.class_id === 0) return null;
   const track = item.track_uid ?? item.playback.track_uid ?? item.uid;
   const seed = hash(JSON.stringify([item.run_id ?? item.playback.run_id ?? "", item.camera, track]));
-  const names = ["Andrea Ríos", "Carlos Duarte", "Elena Mejía", "Daniel Pineda", "Lucía Paz", "Jorge Molina", "Ana Rivera", "Luis Flores"];
+  // Existing artificial portraits from the DNVT demo; never camera evidence.
+  const owners = [
+    { name: "Andrea Ríos", portrait: "m0" }, { name: "Carlos Duarte", portrait: "h0" },
+    { name: "Elena Mejía", portrait: "m1" }, { name: "Daniel Pineda", portrait: "h1" },
+    { name: "Lucía Paz", portrait: "m0" }, { name: "Jorge Molina", portrait: "h2" },
+    { name: "Ana Rivera", portrait: "m1" }, { name: "Luis Flores", portrait: "h1" },
+  ];
+  const owner = owners[seed % owners.length];
   return {
     plate: `DMO ${String(seed % 10000).padStart(4, "0")}`,
-    owner: names[seed % names.length],
+    owner: owner.name,
+    portrait: `/senttra/demo-portraits/${owner.portrait}.webp`,
     document: `DEMO-${String(seed).padStart(10, "0")}`,
     license: `DEMO-L${String(seed % 1000000).padStart(6, "0")}`,
   };
