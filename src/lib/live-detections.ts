@@ -26,6 +26,7 @@ export type DetectionFrame = {
   height: number;
   region_revision: number;
   captured_at?: number | null;
+  segment_started_at?: number;
   source_pts?: number;
   objects: Detection[];
 };

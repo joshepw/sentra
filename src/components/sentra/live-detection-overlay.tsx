@@ -2,7 +2,8 @@
 
 import { useEffect, useRef, type RefObject } from "react";
 import { containedVideo, DetectionBuffer, fragmentPosition, type VideoFragment } from "@/lib/live-detections";
-import { vehicleName } from "@/lib/edge-replay";
+import { detectionInstant, indexIncidents, incidentAt } from "@/lib/incident-overlays";
+import { drawDetection } from "./detection-drawing";
 
 export type DetectionStatus = {
   status: string; stale?: boolean; fps_observed?: number; region_revision?: number;
@@ -29,6 +30,7 @@ export function LiveDetectionOverlay({ camera, enabled, receiving, filter, video
     const context = layer.getContext("2d");
     if (!context) return;
     const buffer = new DetectionBuffer();
+    let incidents = indexIncidents([], camera);
     let closed = false, frameCallback = 0, animation = 0;
     let lastMediaTime = element.currentTime;
     let lastMessage = 0, connected = false;
@@ -42,6 +44,7 @@ export function LiveDetectionOverlay({ camera, enabled, receiving, filter, video
       context.restore();
       layer.dataset.boxes = "0";
       layer.dataset.attributed = "0";
+      layer.dataset.incidents = "0";
       delete layer.dataset.segment;
       delete layer.dataset.offset;
     };
@@ -69,37 +72,21 @@ export function LiveDetectionOverlay({ camera, enabled, receiving, filter, video
       if (!area || (!sameSize && !scaledSize)) {
         status("Esperando el tamaño de video correcto…"); return;
       }
-      const objects = frame.objects.filter(object => filter === "all" || (filter === "people" ? object.class_id === 0 : object.class_id !== 0));
-      context.lineWidth = rect.width < 500 ? 1.5 : 2;
+      const at = detectionInstant(frame, position.offset);
+      const objects = frame.objects.filter(object => filter === "all" || (filter === "people" ? object.class_id === 0 : object.class_id !== 0))
+        .map(object => ({ object, incident: incidentAt(incidents, frame.session, object.id, at) }))
+        .sort((a, b) => Number(!!a.incident) - Number(!!b.incident));
       context.font = "600 11px ui-monospace, monospace";
       context.textBaseline = "top";
-      for (const object of objects) {
-        const [left, top, right, bottom] = object.box;
-        const x = area.x + left * area.width, y = area.y + top * area.height;
-        const w = (right - left) * area.width, h = (bottom - top) * area.height;
-        const color = object.class_id === 0 ? "#68c8ff" : object.class_id === 3 ? "#ffd36c" : "#57f1aa";
-        context.strokeStyle = "#00190c";
-        context.lineWidth += 2;
-        context.strokeRect(x, y, w, h);
-        context.lineWidth -= 2;
-        context.strokeStyle = color;
-        context.strokeRect(x, y, w, h);
-        const attributes = object.attributes;
-        const name = attributes ? vehicleName(attributes.type, attributes.color, object.class_id) : object.label;
-        const text = `${name} #${object.id}`, textWidth = context.measureText(text).width + 8;
-        const tx = Math.min(Math.max(area.x, x), area.x + area.width - textWidth);
-        const ty = Math.max(area.y, y - 17);
-        context.fillStyle = "rgba(0, 15, 8, .88)";
-        context.fillRect(tx, ty, textWidth, 16);
-        context.fillStyle = color;
-        context.fillText(text, tx + 4, ty + 2);
-      }
+      for (const { object, incident } of objects) drawDetection(context, area, object, incident);
+      layer.dataset.incidents = String(objects.filter(row => row.incident).length);
       layer.dataset.boxes = String(objects.length);
-      const attributed = objects.filter(object => object.attributes).length;
+      const attributed = objects.filter(({ object }) => object.attributes).length;
       layer.dataset.attributed = String(attributed);
       layer.dataset.segment = position.segment;
       layer.dataset.offset = position.offset.toFixed(4);
       layer.dataset.observation = frame.offset.toFixed(4);
+      layer.dataset.time = String(at);
       layer.dataset.session = frame.session;
       const details = attributed ? ` · ${attributed} con tipo y color`
         : worker?.attributes?.status === "unavailable" ? " · Tipo/color no disponible" : "";
@@ -113,6 +100,7 @@ export function LiveDetectionOverlay({ camera, enabled, receiving, filter, video
         try {
           const data = JSON.parse((event as MessageEvent).data);
           worker = data.cameras?.[camera] ?? null;
+          incidents = indexIncidents(data.incidents, camera);
           lastMessage = Date.now(); connected = true;
           // A paused frame can get its matching metadata after decoding.
           if (element.paused) draw();
