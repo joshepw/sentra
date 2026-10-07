@@ -4,7 +4,6 @@ import Link from "next/link";
 import Script from "next/script";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { HistoryDetectionOverlay } from "./history-detection-overlay";
-import { IncidentLegend } from "./incident-legend";
 import { HistoryChat } from "@/components/sentra/history-chat";
 import { useAssistantVoice, VoiceMuteButton } from "@/components/sentra/assistant-voice";
 import type { ViewerState, ViewChanges } from "@/lib/viewer-actions";
@@ -247,7 +246,6 @@ function History({ camera, onExpired, showBoxes }: { camera: Camera; onExpired: 
         onTimeUpdate={() => setPosition(selected.started + (video.current?.currentTime ?? 0))} onEnded={advance} />
       <HistoryDetectionOverlay camera={camera.key} segment={selected} video={video} enabled={showBoxes} resolveRun onExpired={onExpired} />
       </div>
-      {showBoxes && <IncidentLegend />}
       <div className="my-3 flex flex-wrap items-center justify-between gap-2 font-mono text-xs text-text-faint">
         <span>{timeText(position || selected.started, true)} · {selected.state === "ok" ? "Sin cortes detectados" : "Tramo con incidencias"}</span>
         <a className={button} href={selected.url} download={`Senttra-${camera.key}-${Math.round(selected.started)}.mp4`}>Descargar tramo</a>
@@ -328,7 +326,6 @@ export function EdgeLiveViewer() {
     {state?.storage.accepting === false && <p role="alert" className="shrink-0 px-3 py-2 text-xs text-warning">La grabación está pausada para conservar el espacio libre del disco.</p>}
     {state ? <HistoryChat csrf={state.user.csrf} onExpired={expired} viewer={view} onView={changeView} cameras={state.cameras} voice={voice} deferTraffic={mode === "live" && !!camera?.receiving && !videoPlayable && !playerFailed}>
       {mode === "live" ? <div className="flex h-full min-h-0 flex-col">
-        {view.boxes && <IncidentLegend />}
         <div className={`grid min-h-0 flex-1 gap-3 ${all ? `auto-rows-max overflow-y-auto lg:grid-cols-2 ${(cameras?.length ?? 0) > 4 ? "xl:grid-cols-3" : ""}` : "grid-rows-1"}`}>
           {(all ? cameras : camera ? [camera] : [])?.map(row => <LiveCamera key={row.key} camera={row} ready={ready} playerFailed={playerFailed} goLive={goLive} showBoxes={view.boxes} fit={!all} onPlayable={markPlayable} onSelect={() => changeView({ camera: row.key, all: false, mode: "live" })} />)}
         </div>
