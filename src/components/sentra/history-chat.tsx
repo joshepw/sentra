@@ -2,7 +2,7 @@
 
 /* eslint-disable @next/next/no-img-element -- Private thumbnails require browser session cookies. */
 
-import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { flushSync } from "react-dom";
 import { HistoryPlayer, type PlayerControl } from "@/components/sentra/history-player";
 import { EdgeTrafficChart } from "@/components/sentra/edge-traffic-chart";
@@ -10,6 +10,8 @@ import { CorridorMap } from "@/components/sentra/corridor-map";
 import { AssistantProgress } from "@/components/sentra/assistant-feedback";
 import type { AssistantVoice } from "@/components/sentra/assistant-voice";
 import { VoiceRecorder } from "@/components/sentra/voice-recorder";
+import { CaseFile } from "@/components/sentra/case-file";
+import { demoCaseKey, demoCaseChange, EMPTY_DEMO_CASE, type DemoCase, type DemoCaseChange } from "@/lib/case-demo";
 import { EmptySector, SectorDirectory } from "@/components/sentra/sector-directory";
 import { PRIMARY_SECTOR, SECTORS, type SectorId } from "@/lib/edge-sectors";
 import { COLOR, TYPE, isTypeOnly, vehicleName } from "@/lib/edge-replay";
@@ -35,6 +37,11 @@ export function HistoryChat({ csrf, onExpired, viewer, onView, cameras, children
   const [busy, setBusy] = useState(false), [phase, setPhase] = useState(""), [error, setError] = useState("");
   const [answerReady, setAnswerReady] = useState(false);
   const [selection, setSelection] = useState<{ playback: Playback; item?: HistoryItem } | null>(null);
+  const [sideTab, setSideTab] = useState<"results" | "case">("results");
+  const [mapExpanded, setMapExpanded] = useState(true), [caseExpanded, setCaseExpanded] = useState(true);
+  const [demoCases, setDemoCases] = useState<Record<string, DemoCase>>({});
+  const tabId = useId();
+  const resultList = useRef<HTMLDivElement>(null), resultScroll = useRef(0);
   const [recording, setRecording] = useState(false), [paging, setPaging] = useState(false);
   const abort = useRef<AbortController | null>(null), mounted = useRef(true), sending = useRef(false);
   const player = useRef<PlayerControl>(null);
@@ -46,8 +53,18 @@ export function HistoryChat({ csrf, onExpired, viewer, onView, cameras, children
   useEffect(() => { current.current = { viewer, result, selection, runId }; }, [viewer, result, selection, runId]);
   const revision = () => `${current.current.viewer.revision}:${localRevision.current}`;
   const choose = (value: typeof selection) => {
+    if (sideTab === "results" && resultList.current) resultScroll.current = resultList.current.scrollTop;
+    if (!value) setMapExpanded(true);
+    else if (!current.current.selection) setMapExpanded(false);
+    setSideTab(value?.item ? "case" : "results"); setCaseExpanded(true);
+    if (value?.item && resultList.current?.contains(document.activeElement)) {
+      requestAnimationFrame(() => document.getElementById(`${tabId}-case-tab`)?.focus({ preventScroll: true }));
+    }
     localRevision.current++; current.current.selection = value; setSelection(value);
   };
+  useLayoutEffect(() => {
+    if (sideTab === "results" && resultList.current) resultList.current.scrollTop = resultScroll.current;
+  }, [sideTab]);
   useEffect(() => {
     // Keep the map reachable by scrolling while bringing the selected video into view.
     const scroll = content.current, target = panels.current;
@@ -266,10 +283,15 @@ export function HistoryChat({ csrf, onExpired, viewer, onView, cameras, children
       showResult(await response.json());
     } catch (reason) { setError((reason as Error).message); } finally { setPaging(false); }
   };
-  const review = async (uid: string, decision: string) => {
-    await post("review", { uid, decision });
-    setResult(previous => previous ? { ...previous, items: previous.items?.map(item => item.uid === uid ? { ...item, review: decision } : item) } : previous);
-    setSelection(previous => previous?.item?.uid === uid ? { ...previous, item: { ...previous.item, review: decision } } : previous);
+  const updateDemoCase = (item: HistoryItem, change: DemoCaseChange) => {
+    const key = demoCaseKey(item);
+    setDemoCases(previous => ({ ...previous, [key]: demoCaseChange(previous[key] ?? EMPTY_DEMO_CASE, change) }));
+  };
+  const replayCase = async (item: HistoryItem) => {
+    const activePlayer = player.current, selected = current.current.selection;
+    if (!activePlayer) throw new Error("no_video");
+    if (!selected?.item || demoCaseKey(selected.item) !== demoCaseKey(item)) throw new Error("stale");
+    await activePlayer.seekTo(item.at ?? item.best_time ?? item.first ?? item.playback.at);
   };
   const selectedIndex = result?.items?.findIndex(item => item.uid === selection?.item?.uid) ?? -1;
   const cameraTitle = (key: string) => cameras.find(camera => camera.key === key)?.title ?? key;
@@ -289,30 +311,39 @@ export function HistoryChat({ csrf, onExpired, viewer, onView, cameras, children
     {viewer.sector !== null && <nav aria-label="Navegación de sectores" className="mb-2 flex shrink-0 items-center gap-2 px-3 text-xs sm:px-5">
       <button type="button" aria-label="Ver sectores" onClick={() => selectSector(null)} className="cursor-pointer py-1 text-text-muted hover:text-accent">← Sectores</button>
       <span aria-hidden="true" className="text-text-faint">/</span><span className="text-text">{sectorTitle}</span>
-      {inCameraSector && <span className="ml-auto font-mono text-[10px] text-text-faint">{cameras.length} cámaras</span>}
+      {inCameraSector && <div className="ml-auto flex items-center gap-3"><span className="hidden font-mono text-[10px] text-text-faint sm:inline">{cameras.length} cámaras</span><button type="button" aria-expanded={mapExpanded} aria-controls={`${tabId}-map`} onClick={() => setMapExpanded(value => !value)} className="cursor-pointer py-1 text-[11px] text-text-muted hover:text-accent">{mapExpanded ? "Ocultar" : "Mostrar"} mapa y actividad <span aria-hidden="true">{mapExpanded ? "▴" : "▾"}</span></button></div>}
     </nav>}
     {viewer.sector === null ? <SectorDirectory cameras={cameras} onSelect={selectSector} /> : !inCameraSector ? <EmptySector sector={viewer.sector} onSelect={selectSector} /> : <>
-    <div aria-label="Mapa y tráfico del corredor" className="mb-3 flex h-[clamp(100px,15dvh,128px)] shrink-0 snap-x snap-mandatory gap-3 overflow-x-auto px-3 sm:grid sm:h-[clamp(112px,21dvh,220px)] sm:grid-cols-[minmax(0,1fr)_minmax(240px,32%)] sm:overflow-visible sm:px-5 lg:grid-cols-[minmax(0,1fr)_320px]">
+    <div id={`${tabId}-map`} hidden={!mapExpanded} aria-label="Mapa y tráfico del corredor" className={mapExpanded ? "mb-3 flex h-[clamp(100px,15dvh,128px)] shrink-0 snap-x snap-mandatory gap-3 overflow-x-auto px-3 sm:grid sm:h-[clamp(112px,21dvh,220px)] sm:grid-cols-[minmax(0,1fr)_minmax(240px,32%)] sm:overflow-visible sm:px-5 lg:grid-cols-[minmax(0,1fr)_340px]" : "hidden"}>
       <div className="h-full min-h-0 min-w-0 basis-[88%] shrink-0 snap-start" aria-label="Mapa del corredor"><CameraMap cams={mapCameras} sel={Math.max(0, cameras.findIndex(camera => camera.key === viewer.camera))} onPick={index => { choose(null); onView({ camera: cameras[index].key, all: false }); }} admin={false} api="" token="" loadSavedLayout={false} compact /></div>
       <div className="h-full min-h-0 min-w-0 basis-[88%] shrink-0 snap-start"><EdgeTrafficChart camera={viewer.camera} title={cameraTitle(viewer.camera)} run={liveRun} onExpired={onExpired} defer={deferTraffic} /></div>
     </div>
-    <div ref={panels} className={`grid flex-1 gap-3 px-3 pb-3 sm:px-5 lg:grid-cols-[minmax(0,1fr)_320px] lg:grid-rows-1 ${selection ? "min-h-min grid-rows-[minmax(min-content,1fr)_200px] lg:min-h-0" : answerReady ? "min-h-0 grid-rows-[minmax(88px,0.7fr)_minmax(180px,1.3fr)]" : "min-h-0 grid-rows-[minmax(120px,1fr)_minmax(96px,1fr)]"}`}>
+    <div ref={panels} className={`grid flex-1 gap-3 px-3 pb-3 sm:px-5 lg:grid-cols-[minmax(0,1fr)_340px] lg:grid-rows-1 ${selection ? `min-h-min lg:min-h-0 ${sideTab === "case" ? caseExpanded ? "grid-rows-[minmax(300px,1fr)_390px]" : "grid-rows-[minmax(300px,1fr)_116px]" : "grid-rows-[minmax(min-content,1fr)_280px]"}` : answerReady ? "min-h-0 grid-rows-[minmax(88px,0.7fr)_minmax(180px,1.3fr)]" : "min-h-0 grid-rows-[minmax(120px,1fr)_minmax(96px,1fr)]"}`}>
       <div className="min-h-0 min-w-0" aria-label="Panel de video">
-        {selection ? <HistoryPlayer key={`${selection.playback.camera}:${selection.playback.at}:${selection.playback.track_uid ?? selection.playback.incident_uid ?? ""}`} controlRef={player} playback={selection.playback} title={cameraTitle(selection.playback.camera)} item={selection.item} onClose={() => choose(null)} onExpired={onExpired} onReview={review} boxes={viewer.boxes} onBoxes={boxes => onView({ boxes })} /> : <div className="h-full min-h-0 overflow-y-auto rounded-xl" data-camera-view>{children}</div>}
+        {selection ? <HistoryPlayer key={`${selection.playback.camera}:${selection.playback.at}:${selection.playback.track_uid ?? selection.playback.incident_uid ?? ""}`} controlRef={player} playback={selection.playback} title={cameraTitle(selection.playback.camera)} item={selection.item} onClose={() => choose(null)} onExpired={onExpired} boxes={viewer.boxes} onBoxes={boxes => onView({ boxes })} /> : <div className="h-full min-h-0 overflow-y-auto rounded-xl" data-camera-view>{children}</div>}
       </div>
       <aside aria-label="Resultados de la consulta" className="flex min-h-0 min-w-0 flex-col overflow-hidden rounded-xl border border-[var(--border)] bg-[#0c1b16]">
+        <div role="tablist" aria-label="Resultados y ficha" className="flex shrink-0 gap-1 border-b border-[var(--border)] px-2 pt-1" onKeyDown={event => {
+          if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+          event.preventDefault();
+          const next = event.key === "Home" || !selection?.item ? "results" : event.key === "End" ? "case" : sideTab === "results" ? "case" : "results";
+          setSideTab(next); document.getElementById(`${tabId}-${next}-tab`)?.focus({ preventScroll: true });
+        }}>
+          {(["results", "case"] as const).map(tab => <button key={tab} type="button" role="tab" id={`${tabId}-${tab}-tab`} aria-controls={`${tabId}-${tab}-panel`} aria-selected={sideTab === tab} tabIndex={sideTab === tab ? 0 : -1} disabled={tab === "case" && !selection?.item} onClick={() => setSideTab(tab)} className={`cursor-pointer border-b-2 px-4 py-2.5 text-xs font-medium outline-offset-[-2px] disabled:cursor-default disabled:opacity-35 ${sideTab === tab ? "border-accent text-accent" : "border-transparent text-text-faint hover:text-text"}`}>{tab === "results" ? "Resultados" : "Ficha"}</button>)}
+        </div>
         <div className="shrink-0 border-b border-[var(--border)] px-3 py-1 lg:py-2" data-result-context>
           <div className="flex items-center justify-between gap-2">
-          <h2 className="text-sm">{outsideHours ? "Fuera del horario de búsqueda" : result?.total !== undefined ? `${result.total} ${result.counting === "candidate_events" ? result.total === 1 ? "incidencia" : "incidencias" : result.total === 1 ? "aparición" : "apariciones"}` : "Resultados"}</h2>
+          <h2 className="text-sm">{sideTab === "case" ? "Caso seleccionado" : outsideHours ? "Fuera del horario de búsqueda" : result?.total !== undefined ? `${result.total} ${result.counting === "candidate_events" ? result.total === 1 ? "incidencia" : "incidencias" : result.total === 1 ? "aparición" : "apariciones"}` : "Resultados"}</h2>
           {selectedIndex >= 0 && <div className="flex items-center gap-2"><span className="text-xs text-accent">{selectedIndex + 1} / {result?.total ?? result?.items?.length}</span><button className={button} aria-label="Resultado anterior" disabled={(busy && !answerReady) || paging || selectedIndex === 0} onClick={() => void manualNavigate("previous")}>←</button><button className={button} aria-label="Siguiente resultado" disabled={(busy && !answerReady) || paging || (selectedIndex === (result?.items?.length ?? 0) - 1 && !result?.next_cursor)} onClick={() => void manualNavigate("next")}>→</button></div>}
           </div>
-          {criteria && <p className="mt-1 text-[11px] leading-snug text-text-muted">{criteria}</p>}
-          {range && <p className="mt-0.5 text-[11px] leading-snug text-text-faint">{range}</p>}
+          {sideTab === "results" && criteria && <p className="mt-1 text-[11px] leading-snug text-text-muted">{criteria}</p>}
+          {sideTab === "results" && range && <p className="mt-0.5 text-[11px] leading-snug text-text-faint">{range}</p>}
           {busy && answerReady && phase === "voice" && <p className="mt-1 text-[11px] leading-snug text-text-faint" data-voice-pending>Preparando el audio…</p>}
-          {searchHours && <p className="mt-0.5 text-[11px] leading-snug text-text-muted">Solo {searchHours.start}–{searchHours.end} HN, cada día</p>}
+          {sideTab === "results" && searchHours && <p className="mt-0.5 text-[11px] leading-snug text-text-muted">Solo {searchHours.start}–{searchHours.end} HN, cada día</p>}
+          {sideTab === "case" && <button type="button" className="my-1 cursor-pointer text-[11px] text-accent lg:hidden" aria-expanded={caseExpanded} aria-controls={`${tabId}-case-panel`} onClick={() => setCaseExpanded(value => !value)}>{caseExpanded ? "Contraer ficha ▴" : "Expandir ficha ▾"}</button>}
         </div>
         {busy && !answerReady && <div className="shrink-0 px-3 pt-2 lg:pt-3"><AssistantProgress phase={phase} /></div>}
-        <div className="min-h-0 flex-1 space-y-2 overflow-y-auto overscroll-contain p-2 lg:p-3" data-result-list>
+        <div ref={resultList} role="tabpanel" id={`${tabId}-results-panel`} aria-labelledby={`${tabId}-results-tab`} hidden={sideTab !== "results"} className={sideTab === "results" ? "min-h-0 flex-1 space-y-2 overflow-y-auto overscroll-contain p-2 lg:p-3" : "hidden"} onScroll={event => { if (sideTab === "results") resultScroll.current = event.currentTarget.scrollTop; }} data-result-list>
           {!result && !busy && <div className="space-y-3 py-3 text-sm text-text-faint"><p>Búsqueda de personas, vehículos e incidencias por texto o voz.</p><div className="flex flex-wrap gap-2">{[["Pailas rojas", "Mostrar las pailas rojas"], ["Vueltas en U", "Mostrar las vueltas en U"], ["Cruces en rojo", "Mostrar los cruces en rojo"], ["Cobertura", "Qué cámaras y horas tienen detecciones guardadas"]].map(([label, question]) => <button key={label} className={button} disabled={busy || recording} onClick={() => void send(question)}>{label}</button>)}</div><p className="text-xs leading-relaxed">“Mostrar Little Caesars a las 7 de la mañana” abre la grabación de hoy. También podés indicar una fecha, pausar o retroceder diez segundos.</p></div>}
           {result?.coverage && <p className="hidden text-[11px] leading-relaxed text-text-faint lg:block">{result.counting !== "candidate_events" && "Una misma unidad puede aparecer más de una vez. "}{result.coverage.runs.some(run => run.kind === "archive" && run.status !== "complete") ? "Cobertura parcial: solo los momentos analizados." : "Resultados de los momentos analizados."}</p>}
           {result?.color_notice && <p className="text-xs leading-relaxed text-text-faint">{result.color_notice}</p>}
@@ -326,6 +357,9 @@ export function HistoryChat({ csrf, onExpired, viewer, onView, cameras, children
           {result?.runs?.map(run => <p key={run.id} className="text-xs text-text-faint">{run.title} · {run.cameras.length} cámaras · {run.status === "complete" ? "Completo" : "Parcial"} · {historyTime(run.started)}{run.ended ? ` a ${historyTime(run.ended)}` : " en adelante"}</p>)}
           {result?.cameras?.map(camera => <p key={camera.camera} className={`text-xs ${camera.receiving ? "text-accent" : "text-warning"}`}>{camera.title}: {camera.receiving ? "con señal" : "sin señal"}</p>)}
         </div>
+        {selection?.item && <div role="tabpanel" id={`${tabId}-case-panel`} aria-labelledby={`${tabId}-case-tab`} hidden={sideTab !== "case"} className={sideTab === "case" ? `${caseExpanded ? "flex" : "hidden lg:flex"} min-h-0 flex-1 flex-col` : "hidden"}>
+          <CaseFile key={demoCaseKey(selection.item)} item={selection.item} value={demoCases[demoCaseKey(selection.item)] ?? EMPTY_DEMO_CASE} onChange={change => updateDemoCase(selection.item!, change)} onReplay={() => replayCase(selection.item!)} />
+        </div>}
       </aside>
     </div>
     </>}

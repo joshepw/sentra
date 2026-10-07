@@ -55,8 +55,8 @@ try {
  await page.waitForFunction(()=>!document.querySelector('input#history-question')?.disabled&&[...document.querySelectorAll('button')].find(b=>b.textContent==='Grabar voz')?.disabled===false,null,{timeout:120000});
  const events=await (await context.request.get(origin+'/edge/api/history/incidents')).json();
  if(events.items.length){
-  await page.getByRole('button',{name:'Ver video',exact:true}).first().click();await page.locator('[aria-label="Video del resultado"] summary').click();await page.getByRole('button',{name:'Descartar',exact:true}).click();await page.locator('[aria-label="Video del resultado"] summary').filter({hasText:'Descartada en revisión'}).waitFor();
-  const checked=await (await context.request.get(origin+'/edge/api/history/incidents')).json();assert.equal(checked.items[0].review,'dismissed');evidence.reviewFixtureOnly=true;
+  await page.getByRole('button',{name:'Ver video',exact:true}).first().click();await page.getByRole('button',{name:'Descartar · Demo',exact:true}).click();await page.locator('[data-case-decision]').filter({hasText:'Descartada'}).waitFor();
+  const checked=await (await context.request.get(origin+'/edge/api/history/incidents')).json();assert.equal(checked.items[0].review,events.items[0].review);evidence.demoReviewIsolated=true;
  }
  await page.getByRole('button',{name:'Cerrar video',exact:true}).click();
  await page.getByRole('button',{name:'Silenciar voz',exact:true}).click();

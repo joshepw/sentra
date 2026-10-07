@@ -47,6 +47,7 @@ try {
   await send('Abrí la segunda');
   await ready();
   assert.equal(await page.getByRole('dialog').count(), 0);
+  await page.getByRole('tab', { name: 'Resultados', exact: true }).click();
   assert.equal(await results.locator('[aria-current="true"]').getAttribute('data-result-number'), '2');
   const video = page.locator('[data-result-video]');
   const beforeScroll = await video.boundingBox();
@@ -92,6 +93,7 @@ try {
   assert(await page.evaluate(() => window.reviewVideo === document.querySelector('[data-result-video]')));
   await page.getByRole('button', { name: 'Mostrar cajas', exact: true }).click();
   await page.getByRole('button', { name: 'Pausar', exact: true }).click();
+  await page.getByRole('tab', { name: 'Resultados', exact: true }).click();
   await results.locator('[data-result-list]').evaluate(element => { element.scrollTop = 0; });
   await page.screenshot({ path: output + '/investigation-desktop.png' });
   assert.equal(await page.getByRole('button', { name: /Conversación/i }).count(), 0);

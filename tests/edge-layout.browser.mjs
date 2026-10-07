@@ -58,6 +58,7 @@ try {
     await route.fulfill({ status: body ? 200 : 404, contentType: 'application/json', body: JSON.stringify(body ?? {}) });
   });
   await page.goto(origin + '/edge');
+  await page.getByRole('button', { name: 'Abrir sector 1era Calle', exact: true }).click();
   await page.getByRole('img', { name: /^Apariciones de vehículos/ }).waitFor();
   assert.deepEqual([...new Set(evidence.trafficRuns)], [liveRun.id], 'An archive listed first must not replace current activity');
   await page.waitForFunction(() => document.querySelector('[data-live-video]')?.readyState >= 2);
@@ -71,16 +72,18 @@ try {
   const checkViewport = async (width, height, label) => {
     await page.setViewportSize({ width, height });
     await page.waitForTimeout(150);
-    const boxes = { map: await rect(map), video: await rect(panel), composer: await rect(composer),
+    const boxes = { ...(await map.isVisible() ? { map: await rect(map) } : {}), video: await rect(panel), composer: await rect(composer),
       results: await rect(page.getByRole('complementary', { name: 'Resultados de la consulta' })) };
-    assert(boxes.map.y + boxes.map.height <= boxes.video.y + 1);
+    if (boxes.map) assert(boxes.map.y + boxes.map.height <= boxes.video.y + 1);
+    const scrollingResults = width < 1024 && await page.locator('[data-result-video]').count() > 0;
     for (const [name, box] of Object.entries(boxes)) {
-      assert(box.x >= 0 && box.x + box.width <= width + 1 && box.y >= 0 && box.y + box.height <= height + 1, `${label} ${name}: ${JSON.stringify(box)}`);
+      assert(box.x >= 0 && box.x + box.width <= width + 1, `${label} ${name}: ${JSON.stringify(box)}`);
+      if (name !== 'results' || !scrollingResults) assert(box.y >= 0 && box.y + box.height <= height + 1, `${label} ${name}: ${JSON.stringify(box)}`);
     }
     assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth && document.documentElement.scrollHeight <= innerHeight + 1));
     const picture = await rect(page.locator('[data-result-video], [data-live-video]').first());
     assert(picture.height >= 100, `${label}: the visible picture is too short (${picture.height}px)`);
-    if (width >= 1024) {
+    if (width >= 1024 && boxes.map) {
       const graph = await rect(chart);
       assert(graph.x > boxes.map.x + boxes.map.width);
       assert(graph.width < boxes.map.width && graph.height <= 220);
@@ -114,6 +117,7 @@ try {
   await page.getByRole('button', { name: 'Ver video', exact: true }).first().click();
   assert.equal(evidence.queries.at(-1).run_id, liveRun.id, 'Undated searches must use live detections');
   await page.waitForFunction(() => document.querySelector('[data-result-video]')?.readyState >= 2);
+  await page.getByRole('tab', { name: 'Resultados', exact: true }).click();
   const before = await rect(page.locator('[data-result-video]'));
   await page.locator('[data-result-list]').evaluate(element => { element.scrollTop = element.scrollHeight; });
   assert.deepEqual(await rect(page.locator('[data-result-video]')), before);
@@ -125,8 +129,10 @@ try {
   assert.equal(await page.getByText('Resultados de la prueba visual.', { exact: true }).count(), 0);
   assert.match(await page.locator('[data-result-context]').innerText(), /Paila · Rojo · Todas las cámaras/);
   await page.locator('[data-result-list]').evaluate(element => { element.scrollTop = 0; });
+  await page.locator('[data-result-number="1"]').scrollIntoViewIfNeeded();
   const listBox = await rect(page.locator('[data-result-list]')), firstResult = await rect(page.locator('[data-result-number="1"]'));
   assert(firstResult.y >= listBox.y && firstResult.y + firstResult.height <= listBox.y + listBox.height, 'Small mobile must have room for a complete result card');
+  assert(firstResult.y + firstResult.height <= (await rect(composer)).y, 'Scrolling reveals the complete first card above the fixed composer');
   await page.screenshot({ path: `${output}/history-small-mobile-first-result.png` });
   assert.deepEqual(evidence.errors, []);
   await writeFile(`${output}/layout.json`, JSON.stringify(evidence, null, 2));

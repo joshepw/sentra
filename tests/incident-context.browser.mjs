@@ -29,13 +29,12 @@ const frames = Array.from({ length: 600 }, (_, index) => ({ camera: 'seguros', s
   captured_at: started + index / 10, source_pts: index / 10, width: 640, height: 360, region_revision: 20,
   objects: (index < 300 ? [11, 22, 33, 55] : [11, 22, 44]).map((id, position) => ({ id, class_id: id === 33 ? 0 : 2,
     label: id === 33 ? 'Persona' : 'Carro', score: .95, box: [.03 + position * .24, .45, .23 + position * .24, .85] })) }));
-const evidence = { checks: [], errors: [], receipts: [] };
+const evidence = { checks: [], errors: [], receipts: [], reviewWrites: 0 };
 const browser = await chromium.launch({ executablePath: process.env.CHROMIUM_PATH ?? '/opt/google/chrome/chrome', headless: true });
 let page;
 try {
   for (const viewport of [{ width: 393, height: 668 }, { width: 1280, height: 900 }]) {
     let mode = 'incidents', job, nextJob = 0;
-    const reviews = {};
     const context = await browser.newContext({ viewport, isMobile: viewport.width < 1024, hasTouch: true, serviceWorkers: 'block' });
     page = await context.newPage();
     page.on('pageerror', error => evidence.errors.push(error.message));
@@ -84,20 +83,26 @@ try {
       else if (path.endsWith('/live/archive')) body = { segments: [{ id: playback.segment_id, started, ended: started + 60,
         duration: 60, state: 'ok', url: '/incident-context-fixture.mp4' }], gaps: [] };
       else if (path.endsWith('/history/recording')) body = { available: true, playback };
-      else if (path.endsWith('/history/frames')) body = { frames, incidents: incidents.map(row => ({ ...row, review: reviews[row.uid] ?? row.review })),
+      else if (path.endsWith('/history/frames')) body = { frames, incidents,
         focus: url.searchParams.has('uid') ? { local_id: Number.parseInt(url.searchParams.get('uid'), 16), session: 'first' } : null };
-      else if (path.endsWith('/history/review')) { const request = route.request().postDataJSON(); reviews[request.uid] = request.decision; body = { id: request.uid, review: request.decision }; }
+      else if (path.endsWith('/history/review')) { evidence.reviewWrites++; body = {}; }
       await route.fulfill({ status: body ? 200 : 404, json: body ?? {} });
     });
     await page.goto(origin + '/edge');
     await page.getByRole('button', { name: 'Silenciar voz', exact: true }).click();
     const send = async selectedMode => { mode = selectedMode;
       await page.getByRole('textbox', { name: 'Consulta de cámaras' }).fill(selectedMode);
+      const submitted = page.waitForResponse(response => new URL(response.url()).pathname === '/edge/api/history/chat' && response.request().method() === 'POST');
       await page.getByRole('button', { name: 'Enviar', exact: true }).click();
+      await (await submitted).finished();
+      await page.waitForFunction(() => [...document.querySelectorAll('button')].some(button => button.textContent === 'Grabar voz' && !button.disabled));
     };
     await send('incidents');
     const results = page.getByRole('complementary', { name: 'Resultados de la consulta' });
-    const open = number => results.locator(`[data-result-number="${number}"]`).getByRole('button', { name: 'Ver video', exact: true }).click();
+    const open = async number => {
+      await page.getByRole('tab', { name: 'Resultados', exact: true }).click();
+      await results.locator(`[data-result-number="${number}"]`).getByRole('button', { name: 'Ver video', exact: true }).click();
+    };
     await open(1);
     await page.waitForFunction(() => document.querySelector('[data-history-overlay]')?.dataset.boxes === '4');
     const player = page.getByRole('region', { name: 'Video del resultado' });
@@ -111,6 +116,8 @@ try {
       state.colors = strokes.map(call => call.color); return state;
     };
     const seek = async (seconds, raw = false) => {
+      const pause = player.getByRole('button', { name: 'Pausar', exact: true });
+      if (!raw && await pause.isVisible()) await pause.click();
       await page.locator(raw ? '[data-history-video]' : '[data-result-video]').evaluate((video, at) => { video.pause(); video.currentTime = at; }, seconds);
       await page.waitForFunction(({ at, raw }) => {
         const video = document.querySelector(raw ? '[data-history-video]' : '[data-result-video]');
@@ -146,16 +153,14 @@ try {
     assert(await page.locator('[data-result-video]').evaluate(video => video.paused && video.currentTime === 42));
     await open(2); await page.waitForFunction(() => document.querySelector('[data-history-overlay]')?.drawn?.some(call => call.args[0] === 'Carro #22 · Inspeccionando'));
     state = await seek(18); assert.equal(state.colors.at(-1), '#ffdb68');
-    await player.locator('summary').click();
-    await player.getByRole('button', { name: 'Confirmar incidencia', exact: true }).click();
-    await page.waitForFunction(() => document.querySelector('[data-history-overlay]')?.drawn?.some(call => call.name === 'strokeRect' && call.color === '#ff5263'));
-    state = await drawing(); assert.equal(state.colors.at(-1), '#ff5263');
-    await player.getByRole('button', { name: 'Descartar', exact: true }).click();
-    await page.waitForFunction(() => document.querySelector('[data-history-overlay]')?.dataset.incidents === '1');
-    state = await drawing(); assert.equal(state.colors.at(-1), '#57f1aa'); assert(state.colors.includes('#ffffff'));
-    check('Confirm and dismiss update paused frame; inspection remains independent', state);
-    await player.getByRole('button', { name: 'Dejar pendiente', exact: true }).click();
-    await page.waitForFunction(() => document.querySelector('[data-history-overlay]')?.dataset.incidents === '2');
+    const originalColors = state.colors;
+    await page.getByRole('button', { name: 'Confirmar infracción · Demo', exact: true }).click();
+    state = await drawing(); assert.deepEqual(state.colors, originalColors);
+    await page.getByRole('button', { name: 'Descartar · Demo', exact: true }).click();
+    state = await drawing(); assert.deepEqual(state.colors, originalColors);
+    assert(await page.locator('[data-result-video]').evaluate(video => video.paused && video.currentTime === 18));
+    check('Demo confirmation and dismissal preserve original incident colors and paused inspection', state);
+    await page.getByRole('button', { name: 'Dejar pendiente', exact: true }).click();
     await send('person'); await open(1);
     await page.waitForFunction(() => document.querySelector('[data-history-overlay]')?.drawn?.some(call => call.args[0] === 'Persona #33 · Inspeccionando'));
     state = await seek(18); assert.equal(state.colors.filter(color => color === '#ffdb68').length, 2);
@@ -172,6 +177,7 @@ try {
     await context.close(); page = null;
   }
   assert.deepEqual(evidence.errors, []);
+  assert.equal(evidence.reviewWrites, 0);
   assert(evidence.receipts.every(receipt => receipt.status === 'applied'));
   await writeFile(`${output}/result.json`, JSON.stringify(evidence, null, 2));
   console.log(JSON.stringify({ checks: evidence.checks.map(({ viewport, check }) => ({ viewport, check })), errors: evidence.errors }));
