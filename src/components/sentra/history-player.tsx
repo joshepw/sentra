@@ -14,11 +14,10 @@ function followingSegment(rows: Segment[], row: Segment) {
   const next = rows[rows.findIndex(candidate => candidate.id === row.id) + 1];
   return next && Math.abs(next.started - row.ended) <= .15 ? next : undefined;
 }
-export type PlayerControl = { control: (command: MediaCommand) => Promise<void>; ready: () => Promise<void>; diagnostics: () => PlaybackDiagnostics };
+export type PlayerControl = { control: (command: MediaCommand) => Promise<void>; seekTo: (at: number) => Promise<void>; ready: () => Promise<void>; diagnostics: () => PlaybackDiagnostics };
 
-export function HistoryPlayer({ playback, title, item, onClose, onExpired, onReview, boxes, onBoxes, controlRef }: {
+export function HistoryPlayer({ playback, title, item, onClose, onExpired, boxes, onBoxes, controlRef }: {
   playback: Playback; title?: string; item?: HistoryItem; onClose: () => void; onExpired: () => void;
-  onReview: (uid: string, decision: string) => Promise<void>;
   boxes: boolean; onBoxes: (boxes: boolean) => void; controlRef: Ref<PlayerControl>;
 }) {
   const video = useRef<HTMLVideoElement>(null);
@@ -32,7 +31,7 @@ export function HistoryPlayer({ playback, title, item, onClose, onExpired, onRev
   const seekGoal = useRef<{ id: string; time: number; assigned: boolean } | null>(null);
   const internalPauses = useRef(new WeakSet<HTMLVideoElement>());
   const [analysis, setAnalysis] = useState(playback.run_id);
-  const [position, setPosition] = useState(playback.at), [reviewing, setReviewing] = useState(false);
+  const [position, setPosition] = useState(playback.at);
   const [needsPlay, setNeedsPlay] = useState(false);
   const [buffering, setBuffering] = useState(true);
   const [paused, setPaused] = useState(false), [controlling, setControlling] = useState(false);
@@ -131,7 +130,7 @@ export function HistoryPlayer({ playback, title, item, onClose, onExpired, onRev
   function fail(code: string, failure: PlaybackDiagnostics["failure"]): never {
     trace.current.failure = failure; throw new Error(code);
   }
-  const control = async (command: MediaCommand) => {
+  const control = async (command: MediaCommand, absoluteAt?: number) => {
     begin(command.operation === "seek" ? "lookup" : command.operation);
     const element = video.current;
     if (!element || !segment) return fail("no_video", "no_video");
@@ -153,8 +152,10 @@ export function HistoryPlayer({ playback, title, item, onClose, onExpired, onRev
       } finally { if (pendingCommand.current === id) { pendingCommand.current = null; pump(); } }
       return;
     }
-    if (!Number.isSafeInteger(command.seconds) || !command.seconds || Math.abs(command.seconds) > 31 * 86400) throw new Error("unavailable_time");
-    const target = segment.started + (element.readyState ? element.currentTime : seekGoal.current?.time ?? 0) + command.seconds;
+    if (absoluteAt === undefined && (!Number.isSafeInteger(command.seconds) || !command.seconds || Math.abs(command.seconds) > 31 * 86400)) throw new Error("unavailable_time");
+    const currentAt = segment.started + (element.readyState ? element.currentTime : seekGoal.current?.time ?? 0);
+    const target = absoluteAt ?? currentAt + command.seconds;
+    if (!Number.isFinite(target) || Math.abs(target - currentAt) > 31 * 86400) throw new Error("unavailable_time");
     trace.current.target_at = target;
     const playing = wantPlaying.current;
     let destinationRows = segments;
@@ -221,7 +222,7 @@ export function HistoryPlayer({ playback, title, item, onClose, onExpired, onRev
     fail("playback_timeout", video.current?.readyState ? "seek_timeout" : "load_timeout");
     } finally { if (pendingCommand.current === id) { pendingCommand.current = null; pump(); } }
   };
-  useImperativeHandle(controlRef, () => ({ control, ready, diagnostics }));
+  useImperativeHandle(controlRef, () => ({ control, seekTo: at => control({ operation: "seek", seconds: 0 }, at), ready, diagnostics }));
   const manualControl = async (command: MediaCommand) => {
     setControlling(true);
     try { await control(command); }
@@ -268,10 +269,6 @@ export function HistoryPlayer({ playback, title, item, onClose, onExpired, onRev
     if (!next || Math.abs(next.started - segment.ended) > .15) { setError(next ? "Hay un corte entre estos tramos. La reproducción se detuvo." : "Fin de esta ventana de video."); return; }
     selectSegment(next, next.started);
   };
-  const review = async (decision: string) => {
-    if (!item) return; setReviewing(true);
-    try { await onReview(item.uid, decision); } catch (reason) { setError((reason as Error).message); } finally { setReviewing(false); }
-  };
   return <section aria-label="Video del resultado" className="flex h-full min-h-0 flex-col overflow-hidden rounded-xl border border-accent/40 bg-[#08130f] text-text">
     <div className="flex shrink-0 items-start justify-between gap-2 px-3 py-2"><div className="min-w-0"><p className="truncate text-sm text-accent">{item?.title ?? title ?? playback.camera} · grabación</p><p className="mt-1 text-[10px] text-text-faint">{historyTime(position)} · Honduras</p></div><button className={button} onClick={onClose}>Cerrar video</button></div>
     {error && <p role="status" className="shrink-0 px-3 pb-2 text-xs text-warning">{error}</p>}
@@ -304,6 +301,5 @@ export function HistoryPlayer({ playback, title, item, onClose, onExpired, onRev
       <button className={button} disabled={!segment || controlling} onClick={() => void manualControl({ operation: paused || needsPlay ? "play" : "pause" })}>{paused || needsPlay ? "Reanudar" : "Pausar"}</button>
       <button className={`${button} ml-auto`} aria-pressed={boxes} onClick={() => onBoxes(!boxes)}>{boxes ? "Ocultar cajas" : "Mostrar cajas"}</button>
     </div>
-    {item?.kind && <details className="shrink-0 border-t border-[var(--border)] px-3 py-2 text-xs"><summary className="cursor-pointer text-text-faint">{item.kind === "uturn" ? "Posible vuelta en U" : "Posible cruce en rojo"} · {item.review === "confirmed" ? "Confirmada en revisión" : item.review === "dismissed" ? "Descartada en revisión" : "Pendiente de revisión"}</summary><div className="mt-2 flex flex-wrap gap-2"><button disabled={reviewing} className={button} onClick={() => void review("confirmed")}>Confirmar incidencia</button><button disabled={reviewing} className={button} onClick={() => void review("dismissed")}>Descartar</button><button disabled={reviewing} className={button} onClick={() => void review("candidate")}>Dejar pendiente</button>{item.clip_url && <a href={item.clip_url} download className={button}>Descargar evidencia</a>}</div></details>}
   </section>;
 }

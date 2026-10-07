@@ -82,7 +82,7 @@ invalid context never invents incident colors. Original recordings are unchanged
 
 `tests/incident-overlays.test.mjs` exercises temporal priority, rewind, identity
 isolation, malformed metadata and fragment clocks. `tests/incident-context.browser.mjs`
-uses a synthetic MP4 to test selection, review changes, person search, direct
+uses a synthetic MP4 to test selection, isolated demo decisions, person search, direct
 camera/time playback and saved segments on mobile/desktop.
 `tests/live-incident-context.browser.mjs` uses the shipped hls.js with local full/
 preview MPEG-TS fixtures to verify all seven streams, both sizes, causal seeking,
@@ -93,7 +93,7 @@ Validation: `npm run build`, ESLint on the changed files, and
 `node --test tests/*test.mjs`. `tests/history-chat.browser.mjs` expects an isolated
 signed-auth fixture, representative archived data, and the local voice/model
 services. It tests session protection, pagination, causal overlays, pause/seek,
-range requests, candidate review in the fixture, microphone input, automatic
+range requests, demo review isolation, microphone input, automatic
 reply audio, explicit dates outside coverage, mobile width and logout.
 
 Deployment requires the matching history/chat backend before this frontend.
@@ -102,10 +102,44 @@ history and original recordings preserves all collected data.
 
 `tests/incident-video-layout.browser.mjs` uses 30 fixture incidents and a synthetic
 60-second MP4 supplied through `EDGE_TEST_VIDEO`. It verifies decoded, visible
-playback in portrait, landscape and desktop layouts, including expanded review
-controls and switching results. `EDGE_TEST_ORIGIN` may point at a local production
+playback in portrait, landscape and desktop layouts, including expanded case
+details and switching results. `EDGE_TEST_ORIGIN` may point at a local production
 build or the published site: all private API and media requests are intercepted,
 so the check requires no login and does not read or change camera data.
+
+## Case file demonstration
+
+Opening a numbered result selects the `Ficha` tab in the existing results panel.
+The desktop sidebar is 340 pixels wide, leaving the main area for video. On phones,
+the case sits below the video and can be collapsed. Its contents scroll independently
+of the decision buttons. `Resultados` preserves the list and its scroll position;
+previous/next navigation works in either tab, including across result pages.
+The map and activity chart collapse when opening a recording and remain available
+through the sector navigation toggle. Closing the video restores the overview.
+
+The file uses the actual observation's camera, timestamp, thumbnail, vehicle
+attributes and saved review. `Volver al momento` seeks the current player to that
+observation while preserving pause/play. Existing clip downloads are still available.
+Example plate and registered-owner details are deterministic per analysis, camera
+and track, explicitly marked as simulated. The driver remains unidentified.
+Person results do not receive a simulated vehicle or owner. Results without an
+incident support notes and playback but do not acquire an invented violation.
+
+Confirm, dismiss and pending decisions are demonstration state held only in the
+current component's memory, separately for each analysis/camera/result. Notes and
+the last 12 decisions remain while navigating cases; reload or logout clears them.
+They never call `/history/review`, alter original metadata or change incident colors.
+The former persistent review controls are removed from this Edge result player.
+Confirmation offers an accessible, closable acta preview labelled `SIN VALIDEZ OFICIAL`;
+it does not issue a sanction or send a document. The backend review API is unchanged.
+
+`tests/case-demo.test.mjs` covers identity scoping, simulated profile consistency,
+person handling, bounded notes/activity and immutable decisions.
+`tests/case-file.browser.mjs` checks six desktop/mobile sizes, tab and list continuity,
+replay, case navigation, notes, demo decisions, acta keyboard dismissal, person and
+camera/time results, and absence of real review requests. Like the incident layout
+test, it accepts a synthetic 60-second `EDGE_TEST_VIDEO` and intercepts all private
+API/media requests, including when run against the published frontend.
 
 ## Conversational viewer prototype
 
@@ -125,8 +159,8 @@ changed view rejects the action. Existing read-only MCP tools remain available;
 they do not gain filesystem or service-control access.
 
 The result video occupies the main panel, beside a separately scrolling numbered
-list (below it on mobile). The camera map and search filters stay visible. The
-composer stays at the bottom and the conversation expands above it. Response audio
+list or case file (below it on mobile). Search filters remain in `Resultados` and
+the map can be expanded above the video. The composer stays at the bottom. Response audio
 pauses during recording or a new request. Box visibility is shared with the live
 viewer and does not replace the playing video element. Original video and metadata
 paths are unchanged.
@@ -134,9 +168,9 @@ paths are unchanged.
 The corridor map stays above the video, beside a compact hourly traffic chart.
 On phones, this overview scrolls horizontally; the video and composer keep their
 own space. Opening a recorded result gives the player enough height for its image,
-controls and incident review. On small screens, the map and result panels can
+controls. On small screens, the map and result panels can
 scroll vertically while the composer stays on screen; selecting another result
-brings its video into view. Expanding an incident review cannot collapse the image.
+brings its video into view. Expanding case details cannot collapse the image.
 The live camera card omits the old box/filter/fullscreen toolbar and
 archive/encoding footer. Detection visibility remains part of the shared viewer
 state and voice commands. Map zoom survives camera-status polling.

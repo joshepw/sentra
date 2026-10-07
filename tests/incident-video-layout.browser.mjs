@@ -95,10 +95,10 @@ try {
     await page.screenshot({ path: `${output}/${viewport.width}x${viewport.height}.png` });
     const before = await measure(`${viewport.width}x${viewport.height} incident`);
     await page.waitForFunction(time => document.querySelector('[data-result-video]')?.currentTime > time + .3, before.time);
-    await player.locator('summary').click();
-    await player.getByRole('button', { name: 'Confirmar incidencia', exact: true }).waitFor();
+    await page.locator('[data-case-file] summary').first().click();
+    await page.getByRole('button', { name: 'Confirmar infracción · Demo', exact: true }).waitFor();
     await page.locator('[data-result-video]').scrollIntoViewIfNeeded();
-    await measure(`${viewport.width}x${viewport.height} expanded review`);
+    await measure(`${viewport.width}x${viewport.height} expanded case details`);
     await player.getByRole('button', { name: 'Cerrar video', exact: true }).click();
     assert.equal(await page.locator('[data-result-video]').count(), 0);
     await results.locator('[data-result-number="5"]').getByRole('button', { name: 'Ver video', exact: true }).click();
