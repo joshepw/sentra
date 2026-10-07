@@ -54,6 +54,16 @@ preceding observation. Gaps clear boxes. Incident trajectories stop at the
 playback time. Review decisions retain the original candidate evidence.
 Cross-camera cosine similarity produces suggestions, never a confirmed identity.
 
+When reviewing an incident, the selected vehicle keeps a solid yellow box.
+Other visible vehicles with recorded candidate or confirmed incidents use dashed
+orange boxes and labels describing the maneuver and review status. Ordinary
+detections stay green. The legend is shown below the video when boxes are enabled.
+The Go `/frames` response includes `incidents` for tracks overlapping the requested
+recording, including maneuvers completed in adjacent segments. The lookup is
+independent of search filters and result pagination, excludes dismissed incidents,
+and matches camera, analysis and tracking session before using a numeric track ID.
+No new detections are inferred from proximity and the archive is not changed.
+
 Validation: `npm run build`, ESLint on the changed files, and
 `node --test tests/*test.mjs`. `tests/history-chat.browser.mjs` expects an isolated
 signed-auth fixture, representative archived data, and the local voice/model

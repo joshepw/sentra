@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useImperativeHandle, useRef, useState, type Ref } from "react";
 import { containedVideo } from "@/lib/live-detections";
 import { vehicleName } from "@/lib/edge-replay";
-import { historyFrameAt, historyTime, type HistoryFrame, type HistoryItem, type Playback, type ToolResult } from "@/lib/history-detections";
+import { historyFrameAt, historyTime, type HistoryFrame, type HistoryIncident, type HistoryItem, type Playback, type ToolResult } from "@/lib/history-detections";
 import type { MediaCommand, PlaybackDiagnostics } from "@/lib/viewer-actions";
 import { VideoLoading } from "@/components/sentra/assistant-feedback";
 import { HISTORY_PREFETCH_SECONDS, historyBufferReady } from "@/lib/history-playback";
@@ -33,6 +33,7 @@ export function HistoryPlayer({ playback, title, item, onClose, onExpired, onRev
   const seekGoal = useRef<{ id: string; time: number; assigned: boolean } | null>(null);
   const internalPauses = useRef(new WeakSet<HTMLVideoElement>());
   const [frames, setFrames] = useState<HistoryFrame[]>([]), [focus, setFocus] = useState<{ local_id: number; session: string } | null>(null);
+  const [incidents, setIncidents] = useState<HistoryIncident[]>([]);
   const [analysis, setAnalysis] = useState(playback.run_id);
   const [position, setPosition] = useState(playback.at), [reviewing, setReviewing] = useState(false);
   const [needsPlay, setNeedsPlay] = useState(false);
@@ -276,16 +277,22 @@ export function HistoryPlayer({ playback, title, item, onClose, onExpired, onRev
         const response = await fetch(`/edge/api/history/frames?${params}`, { cache: "no-store", signal: abort.signal });
         if (response.status === 401) { onExpired(); return; }
         if (!response.ok) throw new Error("No se pudieron cargar las cajas de este tramo.");
-        const data: { frames: HistoryFrame[]; focus: typeof focus } = await response.json();
-        if (!abort.signal.aborted) { setFrames(data.frames); setFocus(data.focus); }
+        const data: { frames: HistoryFrame[]; focus: typeof focus; incidents?: HistoryIncident[] } = await response.json();
+        if (!abort.signal.aborted) { setFrames(data.frames); setFocus(data.focus); setIncidents(data.incidents ?? []); }
       } catch (reason) { if (!abort.signal.aborted) setError((reason as Error).message); }
     };
     void load(); return () => abort.abort();
-  }, [segment, playback, analysis, onExpired]);
+  }, [segment, playback, analysis, item?.review, onExpired]);
   useEffect(() => {
     const element = video.current, layer = canvas.current, label = caption.current;
     if (!element || !layer || !label || !segment) return;
     const context = layer.getContext("2d"); if (!context) return;
+    const incidentTracks = new Map<string, HistoryIncident>();
+    if (item?.kind) for (const incident of incidents) {
+      if (incident.camera === playback.camera && ["candidate", "confirmed"].includes(incident.review)) {
+        incidentTracks.set(`${incident.session}:${incident.local_id}`, incident);
+      }
+    }
     let stopped = false, callback = 0, animation = 0;
     const draw = (mediaTime = element.currentTime) => {
       const rect = layer.getBoundingClientRect(), ratio = Math.min(window.devicePixelRatio || 1, 2);
@@ -293,21 +300,36 @@ export function HistoryPlayer({ playback, title, item, onClose, onExpired, onRev
       if (layer.width !== width || layer.height !== height) { layer.width = width; layer.height = height; }
       context.resetTransform(); context.clearRect(0, 0, layer.width, layer.height); context.scale(ratio, ratio);
       layer.dataset.boxes = "0";
+      layer.dataset.otherIncidents = "0";
       if (!boxes || element.seeking || element.readyState < 2) { label.textContent = boxes ? "Sincronizando…" : "Cajas ocultas"; return; }
       const at = segment.started + mediaTime, frame = analysis ? historyFrameAt(frames, at) : null;
       if (!frame) { label.textContent = "Sin detecciones indexadas para este instante"; return; }
       const area = containedVideo(rect.width, rect.height, element.videoWidth, element.videoHeight);
       if (!area || frame.width !== element.videoWidth || frame.height !== element.videoHeight) return;
       context.font = "600 11px ui-monospace, monospace"; context.textBaseline = "top";
-      for (const object of frame.objects) {
+      const objects = frame.objects.map(object => {
         const selected = focus?.local_id === object.id && focus.session === frame.session;
+        const incident = incidentTracks.get(`${frame.session}:${object.id}`);
+        return { object, selected, incident, order: selected ? 2 : incident ? 1 : 0 };
+      }).sort((left, right) => left.order - right.order);
+      for (const { object, selected, incident } of objects) {
         const [x1, y1, x2, y2] = object.box, x = area.x + x1 * area.width, y = area.y + y1 * area.height;
-        context.strokeStyle = selected ? "#ffdb68" : "#57f1aa"; context.lineWidth = selected ? 3 : 1.5;
+        const otherIncident = !selected && incident;
+        const color = selected ? "#ffdb68" : otherIncident ? "#ff9b42" : "#57f1aa";
+        context.strokeStyle = color; context.lineWidth = selected ? 3 : otherIncident ? 2.5 : 1.5;
+        context.setLineDash(otherIncident ? [6, 4] : []);
         context.strokeRect(x, y, (x2 - x1) * area.width, (y2 - y1) * area.height);
+        context.setLineDash([]);
         const attrs = object.attributes, name = attrs ? vehicleName(attrs.type, attrs.color, object.class_id) : object.label;
-        const text = `${name} #${object.id}`; const labelY = Math.max(area.y, y - 18);
-        context.fillStyle = "#00150deb"; context.fillRect(x, labelY, context.measureText(text).width + 8, 17);
-        context.fillStyle = selected ? "#ffdb68" : "#a8fbd0"; context.fillText(text, x + 4, labelY + 2);
+        const text = `${name} #${object.id}${selected && item?.kind ? " · seleccionada" : ""}`;
+        const detail = otherIncident ? `${incident.review === "confirmed" ? "Confirmada" : "Posible"}: ${incident.kind === "uturn" ? "vuelta en U" : "cruce en rojo"}` : "";
+        const labelHeight = detail ? 32 : 17, labelY = Math.max(area.y, y - labelHeight - 1);
+        const labelWidth = Math.min(area.width, Math.max(context.measureText(text).width, context.measureText(detail).width) + 8);
+        const labelX = Math.max(area.x, Math.min(x, area.x + area.width - labelWidth));
+        context.fillStyle = "#00150deb"; context.fillRect(labelX, labelY, labelWidth, labelHeight);
+        context.fillStyle = selected || otherIncident ? color : "#a8fbd0";
+        context.fillText(text, labelX + 4, labelY + 2, labelWidth - 8);
+        if (detail) context.fillText(detail, labelX + 4, labelY + 17, labelWidth - 8);
       }
       const trajectory = item?.details?.trajectory;
       const inIncident = trajectory?.length && trajectory[0][0] <= segment.ended && trajectory[trajectory.length - 1][0] >= segment.started;
@@ -323,6 +345,7 @@ export function HistoryPlayer({ playback, title, item, onClose, onExpired, onRev
         trail.forEach((point, index) => { const x = area.x + point[1] * area.width, y = area.y + point[2] * area.height; if (index === 0) context.moveTo(x, y); else context.lineTo(x, y); }); context.stroke();
       }
       layer.dataset.boxes = String(frame.objects.length); layer.dataset.observation = String(frame.captured_at); layer.dataset.time = String(at);
+      layer.dataset.otherIncidents = String(objects.filter(object => object.incident && !object.selected).length);
       const light = ({ R: "rojo", A: "amarillo", G: "verde", "?": "no determinado" } as Record<string, string>)[frame.signal?.state ?? "?"];
       label.textContent = `${frame.objects.length} objetos · semáforo ${light}`;
     };
@@ -334,7 +357,7 @@ export function HistoryPlayer({ playback, title, item, onClose, onExpired, onRev
     for (const event of ["seeking", "seeked", "pause", "loadeddata"]) element.addEventListener(event, redraw);
     draw();
     return () => { stopped = true; resize.disconnect(); if (callback) element.cancelVideoFrameCallback(callback); if (animation) cancelAnimationFrame(animation); for (const event of ["seeking", "seeked", "pause", "loadeddata"]) element.removeEventListener(event, redraw); };
-  }, [frames, focus, segment, boxes, item, analysis]);
+  }, [frames, focus, incidents, segment, boxes, item, analysis, playback.camera]);
   const advance = () => {
     if (!segment) return;
     const next = segments[segments.findIndex(row => row.id === segment.id) + 1];
@@ -377,6 +400,10 @@ export function HistoryPlayer({ playback, title, item, onClose, onExpired, onRev
       <button className={button} disabled={!segment || controlling} onClick={() => void manualControl({ operation: paused || needsPlay ? "play" : "pause" })}>{paused || needsPlay ? "Reanudar" : "Pausar"}</button>
       <button className={`${button} ml-auto`} aria-pressed={boxes} onClick={() => onBoxes(!boxes)}>{boxes ? "Ocultar cajas" : "Mostrar cajas"}</button>
     </div>
+    {item?.kind && boxes && <p aria-label="Leyenda de incidencias" className="flex shrink-0 flex-wrap gap-x-4 gap-y-1 px-3 pb-2 text-[10px] text-text-faint">
+      <span className="inline-flex items-center gap-1.5"><span aria-hidden="true" className="h-2.5 w-4 rounded-sm border-2 border-[#ffdb68]" />Seleccionada</span>
+      <span className="inline-flex items-center gap-1.5"><span aria-hidden="true" className="h-2.5 w-4 rounded-sm border-2 border-dashed border-[#ff9b42]" />Otras incidencias detectadas</span>
+    </p>}
     {item?.kind && <details className="shrink-0 border-t border-[var(--border)] px-3 py-2 text-xs"><summary className="cursor-pointer text-text-faint">{item.kind === "uturn" ? "Posible vuelta en U" : "Posible cruce en rojo"} · {item.review === "confirmed" ? "Confirmada en revisión" : item.review === "dismissed" ? "Descartada en revisión" : "Pendiente de revisión"}</summary><div className="mt-2 flex flex-wrap gap-2"><button disabled={reviewing} className={button} onClick={() => void review("confirmed")}>Confirmar incidencia</button><button disabled={reviewing} className={button} onClick={() => void review("dismissed")}>Descartar</button><button disabled={reviewing} className={button} onClick={() => void review("candidate")}>Dejar pendiente</button>{item.clip_url && <a href={item.clip_url} download className={button}>Descargar evidencia</a>}</div></details>}
   </section>;
 }

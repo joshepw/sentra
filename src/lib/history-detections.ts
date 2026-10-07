@@ -5,6 +5,10 @@ export type HistoryFrame = {
   source_pts: number; region_revision: number; objects: Detection[];
   signal?: { state: string; reason?: string };
 };
+export type HistoryIncident = {
+  uid: string; track_uid: string; camera: string; session: string; local_id: number;
+  kind: "uturn" | "rojo"; review: "candidate" | "confirmed"; at: number;
+};
 export type Playback = { camera: string; at: number; run_id?: string | null; track_uid?: string; incident_uid?: string; source?: "camera_time"; segment_id?: string };
 export type HistoryItem = {
   uid: string; run_id?: string; camera: string; title: string; type?: string; color?: string | null; class_id?: number;
