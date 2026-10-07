@@ -39,6 +39,22 @@ interpolated only between the same ID/session/region revision; labels come from
 the current or earlier observation. Unknown segments, invalid coordinates and
 observations over 280 ms old are hidden. Empty observations clear prior boxes.
 
+The optional `display_box` rectangle is separate from the tracker's smoothed
+`box`: it uses the current matched detector observation, avoiding the trailing
+position visible on fast or accelerating vehicles. Both live and saved video
+interpolate this display geometry while keeping IDs, labels and incident times
+causal. An absent or invalid optional rectangle falls back to `box`.
+
+Older archived observations from the known BoT-SORT XYWH/no-GMC pipeline receive
+an approximate display reconstruction in the Go API, with up to three seconds
+of past warmup. It reverses the filter's position update; it does not advance the
+video clock. Unknown tracker configurations, missing observations, restarts,
+clipped rectangles and excessive corrections retain the original rectangle.
+Stored evidence, rule geometry, source timestamps and recordings are unchanged.
+New detector rectangles take precedence over reconstruction. At image edges or
+after occlusions, old recordings can therefore retain some smoothing until a
+continuous, unclipped track is available again.
+
 Optional object `attributes` contain type/color labels and scores, the source PTS
 when the track qualified, and the three crop PTS. The browser rejects future or
 invalid crop times and only uses attributes from the current or past observation.

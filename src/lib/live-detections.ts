@@ -13,6 +13,7 @@ export type Detection = {
   label: string;
   score: number;
   box: [number, number, number, number];
+  display_box?: [number, number, number, number];
   attributes?: VehicleAttributes;
 };
 
@@ -53,6 +54,19 @@ export type VideoFragment = {
   elementaryStreams?: { video?: { startPTS: number; endPTS: number } | null };
 };
 
+// Detection geometry is current to the decoded source frame. The older `box`
+// remains the tracker's smoothed position for compatibility and incident rules.
+// Keep the fallback so a rolling server update or malformed optional field
+// cannot hide an otherwise usable observation.
+export function displayDetections<T extends { objects: Detection[] }>(frame: T): T {
+  return { ...frame, objects: frame.objects.map(object => {
+    const box = object.display_box;
+    const valid = Array.isArray(box) && box.length === 4 && box.every(value => Number.isFinite(value) && value >= 0 && value <= 1)
+      && box[2] > box[0] && box[3] > box[1];
+    return valid ? { ...object, box } : object;
+  }) };
+}
+
 export function fragmentName(url: string) {
   return url.split("?", 1)[0].split("/").at(-1) ?? "";
 }
@@ -92,8 +106,9 @@ export class DetectionBuffer {
   count = 0;
 
   append(input: unknown[], camera: string) {
-    for (const value of input.slice(-1000)) {
-      if (!validFrame(value, camera)) continue;
+    for (const inputFrame of input.slice(-1000)) {
+      if (!validFrame(inputFrame, camera)) continue;
+      const value = displayDetections(inputFrame);
       let rows = this.frames.get(value.segment);
       if (!rows) { rows = []; this.frames.set(value.segment, rows); }
       const existing = rows.findIndex(row => Math.abs(row.offset - value.offset) < .00001);

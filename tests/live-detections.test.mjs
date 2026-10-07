@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {DetectionBuffer,fragmentPosition,containedVideo} from '../src/lib/live-detections.ts';
+import {DetectionBuffer,fragmentPosition,containedVideo,displayDetections} from '../src/lib/live-detections.ts';
+import {historyFrameAt} from '../src/lib/history-detections.ts';
 
 const object=(id,box=[.1,.2,.3,.4],label='Carro')=>({id,class_id:2,label,score:.8,box});
 const frame=(offset,objects=[object(3)],extra={})=>({camera:'little1',session:'one',segment:'video_seg1.mp4',offset,
@@ -100,4 +101,29 @@ test('a new session or empty observations do not retain earlier type and color',
   frame(1.7,[],{source_pts:11.7,session:'new'})],'little1');
  assert.equal(buffer.at('video_seg1.mp4',1.6).objects[0].attributes,undefined);
  assert.equal(buffer.at('video_seg1.mp4',1.7).objects.length,0);
+});
+
+test('live and saved playback use observed geometry at the same time, retaining past labels',()=>{
+ const past={...object(3),display_box:[.2,.2,.4,.4]};
+ const future={...object(3),display_box:[.4,.2,.6,.4],label:'future label'};
+ const originals=[frame(1,[past]),frame(1.2,[future])];
+ const buffer=new DetectionBuffer();buffer.append(originals,'little1');
+ const historical=originals.map(row=>displayDetections({...row,captured_at:100+row.offset}));
+ for(const row of [buffer.at('video_seg1.mp4',1.1),historyFrameAt(historical,101.1)]){
+  assert(Math.abs(row.objects[0].box[0]-.3)<1e-8);
+  assert.equal(row.objects[0].label,'Carro');
+ }
+ assert.equal(buffer.at('video_seg1.mp4',1).objects[0].box[0],.2);
+ assert.equal(buffer.at('video_seg1.mp4',.99),null);
+ assert.equal(originals[0].objects[0].box[0],.1,'Display cannot mutate tracked evidence');
+});
+
+test('older metadata and invalid optional geometry preserve the valid tracked rectangle',()=>{
+ for(const display_box of [undefined,null,[],[.1,.2,.3],[-1,.2,.3,.4],[.3,.2,.1,.4],[NaN,.2,.3,.4],['.1',.2,.3,.4]]){
+  const input=frame(1,[{...object(3),display_box}]);
+  assert.deepEqual(displayDetections(input).objects[0].box,object(3).box);
+  const buffer=new DetectionBuffer();buffer.append([input],'little1');
+  assert.equal(buffer.count,1);
+  assert.deepEqual(buffer.at('video_seg1.mp4',1).objects[0].box,object(3).box);
+ }
 });
