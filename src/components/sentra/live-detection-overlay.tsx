@@ -16,9 +16,10 @@ type Props = {
   filter: "all" | "vehicles" | "people";
   video: RefObject<HTMLVideoElement | null>;
   fragments: RefObject<VideoFragment[]>;
+  allowScaledVideo?: boolean;
 };
 
-export function LiveDetectionOverlay({ camera, enabled, receiving, filter, video, fragments }: Props) {
+export function LiveDetectionOverlay({ camera, enabled, receiving, filter, video, fragments, allowScaledVideo = false }: Props) {
   const canvas = useRef<HTMLCanvasElement>(null);
   const caption = useRef<HTMLSpanElement>(null);
 
@@ -61,7 +62,11 @@ export function LiveDetectionOverlay({ camera, enabled, receiving, filter, video
       const frame = buffer.at(position.segment, position.offset);
       if (!frame) { status(worker?.status === "running" ? "Sin análisis para este momento" : "Esperando análisis…"); return; }
       const area = containedVideo(rect.width, rect.height, element.videoWidth, element.videoHeight);
-      if (!area || frame.width !== element.videoWidth || frame.height !== element.videoHeight) {
+      const sameSize = frame.width === element.videoWidth && frame.height === element.videoHeight;
+      // Preview renditions resize the entire image; normalized boxes retain
+      // their position. A different aspect ratio would indicate a crop/mismatch.
+      const scaledSize = allowScaledVideo && frame.width * element.videoHeight === frame.height * element.videoWidth;
+      if (!area || (!sameSize && !scaledSize)) {
         status("Esperando el tamaño de video correcto…"); return;
       }
       const objects = frame.objects.filter(object => filter === "all" || (filter === "people" ? object.class_id === 0 : object.class_id !== 0));
@@ -149,7 +154,7 @@ export function LiveDetectionOverlay({ camera, enabled, receiving, filter, video
       element.removeEventListener("pause", redraw); element.removeEventListener("emptied", seeking);
       clear();
     };
-  }, [camera, enabled, receiving, filter, video, fragments]);
+  }, [camera, enabled, receiving, filter, video, fragments, allowScaledVideo]);
 
   return <>
     <canvas ref={canvas} data-detection-overlay={camera} aria-label="Detecciones sobre el video"
