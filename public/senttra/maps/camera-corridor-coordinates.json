@@ -1,0 +1,67 @@
+{
+  "source": "Existing verified corridor-map-data.ts camera defaults aligned to identical OSM street geometry",
+  "sourceFile": "src/components/sentra/corridor-map-data.ts",
+  "note": "Reference positions already used by the application, not surveyed camera installation coordinates. Existing /api/map overrides take precedence.",
+  "fit": {
+    "matchedStreetSegments": 124,
+    "vertices": 1886,
+    "rmsePixels": 0.04076323606315305
+  },
+  "cameraDefaults": {
+    "pizzahut": {
+      "lon": -88.0361002,
+      "lat": 15.5068201,
+      "bearing": 90
+    },
+    "little": {
+      "lon": -88.0353985,
+      "lat": 15.5067397,
+      "bearing": 270
+    },
+    "little1": {
+      "lon": -88.035122,
+      "lat": 15.5067397,
+      "bearing": 315
+    },
+    "seguros": {
+      "lon": -88.034426,
+      "lat": 15.5066503,
+      "bearing": 90
+    },
+    "seguros1": {
+      "lon": -88.0341495,
+      "lat": 15.5066503,
+      "bearing": 135
+    },
+    "seguros2": {
+      "lon": -88.0338729,
+      "lat": 15.5066503,
+      "bearing": 180
+    },
+    "crowne": {
+      "lon": -88.0312988,
+      "lat": 15.5064098,
+      "bearing": 90
+    },
+    "crowne1": {
+      "lon": -88.0310222,
+      "lat": 15.5064098,
+      "bearing": 45
+    },
+    "axis9": {
+      "lon": -88.0294863,
+      "lat": 15.5061694,
+      "bearing": 90
+    },
+    "axis5": {
+      "lon": -88.0292097,
+      "lat": 15.5061694,
+      "bearing": 90
+    },
+    "axis5b": {
+      "lon": -88.0289332,
+      "lat": 15.5061694,
+      "bearing": 45
+    }
+  }
+}
