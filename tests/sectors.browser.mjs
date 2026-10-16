@@ -49,6 +49,7 @@ try {
     if (path.endsWith('/live/bootstrap')) body = { cameras: cameras.map(camera => ({ ...camera, receiving,
       url: `/edge/media/live/${camera.key}/index.m3u8` })), user: { csrf: 'fixture-only' }, storage: {} };
     else if (path.endsWith('/history/coverage')) body = { runs: [] };
+    else if (path.endsWith('/history/dashboard')) body = { totals:{uturn:0,rojo:0}, distributions:{vehicle_colors:[],shirt_colors:[],vehicle_types:[]}, hours:Array.from({length:24},(_,hour)=>({hour,vehicles:0,uturn:0,rojo:0})), featured:null, events:[], counting:'appearances_per_camera_session' };
     else if (path.endsWith('/live/archive')) {
       archiveRequests++;
       if (archiveDelay) await new Promise(resolve => setTimeout(resolve, archiveDelay));
@@ -76,9 +77,15 @@ try {
   });
   await page.goto(origin + '/edge');
   await page.getByRole('button', { name: 'Silenciar voz', exact: true }).click();
-  const directory = () => page.getByRole('region', { name: 'Sectores', exact: true });
-  const openFirst = () => page.getByRole('button', { name: 'Abrir sector 1era Calle', exact: true }).click();
-  const back = () => page.getByRole('button', { name: 'Ver sectores', exact: true }).click();
+  const directory = () => page.getByRole('region', { name: 'Inicio de Senttra', exact: true });
+  const openFirst = async () => {
+    await page.locator('[data-dashboard-card="control"]').click();
+    for (const [level,name] of [['region','Honduras'],['honduras','Cortés'],['cortes','San Pedro Sula']]) {
+      if (await page.locator(`[data-map-level="${level}"]:visible`).count()) await page.getByRole('button',{name,exact:true}).click();
+    }
+    await page.getByRole('button',{name:'Abrir cámaras',exact:true}).click();
+  };
+  const back = () => page.getByRole('navigation', { name: 'Navegación principal' }).getByRole('button', { name: 'Inicio', exact: true }).click();
   const idle = () => page.waitForFunction(() => !document.querySelector('button[aria-haspopup="dialog"]')?.disabled);
   const send = async (text, changes, { microphone = false, wait = true } = {}) => {
     action = changes.kind ? changes : { kind: 'view', changes };
@@ -99,13 +106,12 @@ try {
     }
   };
   await directory().waitFor();
-  assert.equal(await page.locator('[data-sector]').count(), 6);
+  assert.equal(await page.locator('[data-dashboard-card]').count(), 6);
   assert.equal(await page.locator('video').count(), 0);
   assert.equal(evidence.media.length, 0);
-  assert.equal(await page.getByText('Sin cámaras conectadas', { exact: true }).count(), 5);
-  assert.match(await page.locator('[data-sector="primera_calle"]').innerText(), /7 cámaras/);
+  assert.equal(await page.locator('[data-empty-sector]').count(), 0);
   await page.screenshot({ path: `${output}/sectors-desktop.png`, fullPage: true });
-  evidence.checks.push('Default directory shows six sectors, seven real configured cameras, five empty sectors, and no media players or downloads');
+  evidence.checks.push('Default dashboard shows six entries without mounting hidden media players');
 
   await send('Pailas rojas', { kind: 'fixture_search' }, { wait: false });
   await page.locator('[data-result-number]').waitFor(); await idle();
@@ -122,7 +128,7 @@ try {
   for (const [id, title] of Object.entries(sectors)) {
     await back();
     const before = evidence.media.length;
-    await page.getByRole('button', { name: `Abrir sector ${title}`, exact: true }).click();
+    await send(`Mostrame ${title}`, { sector:id, close_video:true });
     assert.equal(await page.locator(`[data-empty-sector="${id}"]`).count(), 1);
     assert.equal(await page.locator('video').count(), 0);
     assert.equal(await page.getByLabel('Mapa y tráfico del corredor', { exact: true }).count(), 0);
@@ -155,10 +161,10 @@ try {
   delayedAction = true;
   let before = evidence.receipts.length;
   await send('Mostrame 1era Calle', { sector: 'primera_calle', all: true, mode: 'live', close_video: true }, { wait: false });
-  await page.getByRole('button', { name: 'Abrir sector Armenta', exact: true }).click();
+  await page.getByRole('navigation', { name: 'Navegación principal' }).getByRole('button', { name: 'Explorador', exact: true }).click();
   await waitUntil(() => evidence.receipts.length > before); await idle();
   assert.equal(evidence.receipts.at(-1).status, 'stale');
-  assert.equal(await page.locator('[data-empty-sector="armenta"]').count(), 1);
+  await page.getByRole('region',{name:'Explorador',exact:true}).waitFor();
   assert.equal(await page.locator('video').count(), 0);
   delayedAction = false;
   await back(); await openFirst();
@@ -176,15 +182,14 @@ try {
 
   await page.setViewportSize({ width: 390, height: 844 });
   await page.screenshot({ path: `${output}/sectors-mobile.png`, fullPage: true });
-  const trejo = page.getByRole('button', { name: 'Abrir sector La Trejo', exact: true });
-  await trejo.scrollIntoViewIfNeeded(); await trejo.click();
+  await send('Mostrame La Trejo', {sector:'trejo',close_video:true});
   await page.screenshot({ path: `${output}/empty-mobile.png`, fullPage: true });
   assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
   await page.getByRole('button', { name: 'Ver cámaras de 1era Calle', exact: true }).click();
   assert.equal(await page.locator('[data-live-camera]').count(), 7);
-  await back(); receiving = false;
-  await page.waitForFunction(() => document.querySelector('[data-sector="primera_calle"]')?.textContent.includes('0 en vivo'));
-  assert.match(await page.locator('[data-sector="primera_calle"]').innerText(), /7 cámaras/);
+  receiving = false;
+  await page.waitForFunction(() => [...document.querySelectorAll('[data-live-camera]')].filter(node=>node.textContent.includes('Sin señal')).length === 7);
+  assert.equal(await page.locator('[data-live-camera]').count(), 7);
   evidence.checks.push('Mobile reaches every sector; a signal outage changes live counts without removing the seven configured cameras');
   assert.deepEqual(evidence.errors, []);
   console.log(JSON.stringify({ checks: evidence.checks, receipts: evidence.receipts.length, errors: evidence.errors }));

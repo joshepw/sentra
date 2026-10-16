@@ -5,6 +5,7 @@ import Script from "next/script";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { HistoryDetectionOverlay } from "./history-detection-overlay";
 import { HistoryChat } from "@/components/sentra/history-chat";
+import { DashboardLoading } from "@/components/sentra/edge-dashboard";
 import { useAssistantVoice, VoiceMuteButton } from "@/components/sentra/assistant-voice";
 import type { ViewerState, ViewChanges } from "@/lib/viewer-actions";
 import { SentraLogoMark, SentraWordmark } from "@/components/sentra/ui";
@@ -316,7 +317,7 @@ export function EdgeLiveViewer() {
     <a href="/edge/auth/login?next=%2Fedge%2Flive" className={`${button} inline-block border-accent text-accent`}>Entrar con Zitadel</a>
   </div></main>;
   const camera = cameras?.[selected];
-  return <main className="flex h-dvh min-h-0 flex-col overflow-hidden bg-bg-page text-text">
+  return <main className="fixed inset-0 flex h-dvh min-h-0 flex-col overflow-hidden bg-bg-page text-text">
     <Script src="/senttra/hls.min.js" strategy="afterInteractive" onReady={() => { setPlayerFailed(false); setReady(true); }} onError={() => setPlayerFailed(true)} />
     <header className="z-40 flex shrink-0 items-center justify-between gap-3 border-b border-[var(--border)] bg-[#081411] px-3 py-3 sm:px-5">
       <Link href="/" className="flex items-center gap-2"><SentraLogoMark size={24} /><SentraWordmark /><span className="font-mono text-[10px] uppercase tracking-widest text-accent">Edge</span></Link>
@@ -330,6 +331,6 @@ export function EdgeLiveViewer() {
           {(all ? cameras : camera ? [camera] : [])?.map(row => <LiveCamera key={row.key} camera={row} ready={ready} playerFailed={playerFailed} goLive={goLive} showBoxes={view.boxes} fit={!all} onPlayable={markPlayable} onSelect={() => changeView({ camera: row.key, all: false, mode: "live" })} />)}
         </div>
       </div> : camera && <History key={camera.key} camera={camera} onExpired={expired} showBoxes={view.boxes} />}
-    </HistoryChat> : <p className="p-5 text-sm text-text-faint">Conectando con Senttra…</p>}
+    </HistoryChat> : <DashboardLoading />}
   </main>;
 }

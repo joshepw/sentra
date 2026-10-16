@@ -21,6 +21,7 @@ export type Coverage = { runs: {
   totals: { appearances: number; with_attributes: number };
 }[] };
 export type ToolResult = {
+  catalog?: boolean;
   items?: HistoryItem[]; total?: number; next_cursor?: string | null;
   filters?: Record<string, string | number>; counting?: string; coverage?: Coverage;
   playback?: Playback; runs?: Coverage["runs"]; note?: string; color_notice?: string; reason?: string; identity_confirmed?: boolean;
