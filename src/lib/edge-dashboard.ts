@@ -2,6 +2,16 @@ import type { HistoryItem } from "./history-detections";
 import { COLOR, TYPE } from "./edge-replay";
 
 export type PortalScreen = "home" | "explorer" | "activity" | "control";
+export type ExploreMode = "vehicle_colors" | "shirt_colors" | "vehicle_types" | "combined" | "similar" | "archive";
+export type DashboardNavigation = {
+  screen: PortalScreen;
+  explorer: { mode: ExploreMode | null; type: string; color: string; camera: string; when: string };
+  map: { level: "region" | "honduras" | "cortes" | "sps"; zoom: number; nodesVisible: boolean };
+};
+export const INITIAL_DASHBOARD_NAVIGATION: DashboardNavigation = {
+  screen: "home", explorer: { mode: null, type: "", color: "", camera: "", when: "" },
+  map: { level: "region", zoom: 1, nodesVisible: true },
+};
 export type DashboardCamera = { key: string; title: string; receiving: boolean; url?: string; preview_url?: string };
 export type Distribution = { key: string; total: number };
 export type DashboardSummary = {

@@ -1,11 +1,11 @@
 "use client";
 
 /* eslint-disable @next/next/no-img-element -- Authenticated evidence is served with browser session cookies. */
-import { memo, useId, useMemo, useState } from "react";
+import { memo, useId, useMemo } from "react";
 import { DashboardIcon } from "./dashboard-icon";
 import { incidentTitle } from "@/lib/case-demo";
 import { historyTime, type HistoryItem } from "@/lib/history-detections";
-import { numberText, project, type DashboardMaps, type DashboardSummary, type GeoMap } from "@/lib/edge-dashboard";
+import { numberText, project, type DashboardMaps, type DashboardSummary, type DashboardNavigation, type GeoMap } from "@/lib/edge-dashboard";
 import corridorCoordinates from "../../../public/senttra/maps/camera-corridor-coordinates.json";
 
 type Level = keyof DashboardMaps;
@@ -65,10 +65,11 @@ export const CityDrawing = memo(function CityDrawing({ map, interactive = false,
   </svg>;
 });
 
-export function DashboardMap({ maps, summary, onCamera, onOpen, onIncidents }: { maps: DashboardMaps; summary: DashboardSummary; onCamera: () => void; onOpen: (item: HistoryItem) => void; onIncidents: () => void }) {
-  const [level, setLevel] = useState<Level>("region"), [zoom, setZoom] = useState(1), [nodesVisible, setNodesVisible] = useState(true);
+export function DashboardMap({ maps, summary, onCamera, onOpen, onIncidents, view, onView }: { maps: DashboardMaps; summary: DashboardSummary; onCamera: () => void; onOpen: (item: HistoryItem) => void; onIncidents: () => void; view: DashboardNavigation["map"]; onView: (view: DashboardNavigation["map"]) => void }) {
+  const { level, zoom, nodesVisible } = view;
+  const change = (patch: Partial<typeof view>) => onView({ ...view, ...patch });
   const depth = levels.indexOf(level), map = maps[level];
-  const go = (next: Level) => { setLevel(next); setZoom(1); };
+  const go = (next: Level) => change({ level: next, zoom: 1 });
   const pick = (id: string) => {
     if (level === "region" && id === "honduras") go("honduras");
     else if (level === "honduras" && id === "HN-CR") go("cortes");
@@ -90,7 +91,7 @@ export function DashboardMap({ maps, summary, onCamera, onOpen, onIncidents }: {
             <g className="ed-map-compass" transform="translate(934 90)"><path d="m0-16 5 20-5-4-5 4Z" fill="#84cbb1" /><text y="-24" textAnchor="middle">N</text></g>
           </svg>}
         </div>
-        {level === "sps" && <div className="ed-map-tools"><button aria-label="Acercar mapa" disabled={zoom >= 2} onClick={() => setZoom(value => Math.min(2, value + .25))}>+</button><button aria-label="Alejar mapa" disabled={zoom <= 1} onClick={() => setZoom(value => Math.max(1, value - .25))}>−</button><button aria-label="Restablecer mapa" onClick={() => setZoom(1)}>⌖</button><button aria-label="Mostrar cámaras" aria-pressed={nodesVisible} onClick={() => setNodesVisible(value => !value)}><DashboardIcon name="camera" size={17} /></button></div>}
+        {level === "sps" && <div className="ed-map-tools"><button aria-label="Acercar mapa" disabled={zoom >= 2} onClick={() => change({ zoom: Math.min(2, zoom + .25) })}>+</button><button aria-label="Alejar mapa" disabled={zoom <= 1} onClick={() => change({ zoom: Math.max(1, zoom - .25) })}>−</button><button aria-label="Restablecer mapa" onClick={() => change({ zoom: 1 })}>⌖</button><button aria-label="Mostrar cámaras" aria-pressed={nodesVisible} onClick={() => change({ nodesVisible: !nodesVisible })}><DashboardIcon name="camera" size={17} /></button></div>}
         <div className="ed-map-caption"><span>{level === "sps" ? "Red visual de demostración · Alertas del historial" : "Límites geográficos · Navegación por territorio"}</span><a href="/senttra/maps/SOURCES.md" target="_blank" rel="noreferrer">{level === "region" ? "Natural Earth" : level === "cortes" ? "ICF · geoBoundaries" : "© OpenStreetMap · geoBoundaries"} ↗</a></div>
       </div>
       {level === "sps" && <aside className="ed-city-feed" aria-label="Alertas de San Pedro Sula"><div className="ed-feed-heading"><div><p className="ed-eyebrow">EVIDENCIA DISPONIBLE</p><h3>En el radar</h3></div><DashboardIcon name="activity" size={23} /></div>

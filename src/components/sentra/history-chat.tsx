@@ -15,7 +15,8 @@ import { demoCaseKey, demoCaseChange, incidentTitle, EMPTY_DEMO_CASE, type DemoC
 import { EmptySector } from "@/components/sentra/sector-directory";
 import { EdgeDashboard } from "@/components/sentra/edge-dashboard";
 import { DashboardIcon } from "@/components/sentra/dashboard-icon";
-import { attributeLabel, type CatalogFilter, type DashboardCamera, type PortalScreen } from "@/lib/edge-dashboard";
+import { useBrowserHistory } from "@/components/sentra/use-browser-history";
+import { attributeLabel, INITIAL_DASHBOARD_NAVIGATION, type DashboardNavigation, type CatalogFilter, type DashboardCamera, type PortalScreen } from "@/lib/edge-dashboard";
 import "./edge-dashboard.css";
 import { PRIMARY_SECTOR, SECTORS, type SectorId } from "@/lib/edge-sectors";
 import { COLOR, TYPE, isTypeOnly, vehicleName } from "@/lib/edge-replay";
@@ -30,7 +31,8 @@ export function HistoryChat({ csrf, onExpired, viewer, onView, cameras, children
   csrf: string; onExpired: () => void; viewer: ViewerState; onView: (changes: ViewChanges) => void;
   cameras: DashboardCamera[]; children: ReactNode; deferTraffic: boolean; voice: AssistantVoice;
 }) {
-  const [portalScreen, setPortalScreen] = useState<PortalScreen>("home");
+  const [dashboard, setDashboard] = useState<DashboardNavigation>(INITIAL_DASHBOARD_NAVIGATION);
+  const portalScreen = dashboard.screen;
   const [coverage, setCoverage] = useState<Coverage>({ runs: [] });
   const liveRun = coverage.runs.find(run => run.kind === "live");
   // Omitting the run would let the backend choose an older archive by default.
@@ -39,6 +41,7 @@ export function HistoryChat({ csrf, onExpired, viewer, onView, cameras, children
   const sectorTitle = SECTORS.find(sector => sector.id === viewer.sector)?.title;
   const mapCameras = useMemo(() => cameras.map(camera => ({ id: camera.key, nombre: camera.title, n_giro: 0, n_rojo: 0 })), [cameras]);
   const [text, setText] = useState(""), [result, setResult] = useState<ToolResult | null>(null);
+  const [resultRevision, setResultRevision] = useState(0);
   const [busy, setBusy] = useState(false), [phase, setPhase] = useState(""), [error, setError] = useState("");
   const [answerReady, setAnswerReady] = useState(false);
   const [selection, setSelection] = useState<{ playback: Playback; item?: HistoryItem } | null>(null);
@@ -56,6 +59,28 @@ export function HistoryChat({ csrf, onExpired, viewer, onView, cameras, children
   const localRevision = useRef(0), conversation = useRef("");
   const current = useRef({ viewer, result, selection, runId });
   useEffect(() => { current.current = { viewer, result, selection, runId }; }, [viewer, result, selection, runId]);
+  const navigationKey = viewer.sector === null
+    ? JSON.stringify([portalScreen, portalScreen === "explorer" ? dashboard.explorer.mode : portalScreen === "control" ? dashboard.map.level : null])
+    : JSON.stringify([viewer.sector, viewer.all ? "all" : viewer.camera, viewer.mode, resultRevision, selection?.item?.uid, selection?.playback, selection ? sideTab : null]);
+  useBrowserHistory(navigationKey, { dashboard, viewer, result, resultRevision, selection, sideTab, mapExpanded, caseExpanded, answerReady },
+    { screen: portalScreen, explorer: dashboard.explorer.mode, map: dashboard.map.level }, (saved, location) => {
+      stopVoice();
+      // Browser navigation must invalidate in-flight assistant/search actions in
+      // the same way as a manual camera or portal change. Revisions never rewind.
+      localRevision.current++;
+      current.current.result = saved?.result ?? null;
+      current.current.selection = saved?.selection ?? null;
+      setDashboard(saved?.dashboard ?? { ...INITIAL_DASHBOARD_NAVIGATION, screen: location.screen,
+        explorer: { ...INITIAL_DASHBOARD_NAVIGATION.explorer, mode: location.explorer },
+        map: { ...INITIAL_DASHBOARD_NAVIGATION.map, level: location.map } });
+      setResult(saved?.result ?? null); setResultRevision(saved?.resultRevision ?? 0);
+      setSelection(saved?.selection ?? null); setSideTab(saved?.sideTab ?? "results");
+      setMapExpanded(saved?.mapExpanded ?? true); setCaseExpanded(saved?.caseExpanded ?? true);
+      setAnswerReady(saved?.answerReady ?? false); setError("");
+      const { revision: _revision, ...view } = saved?.viewer ?? { ...viewer, sector: null, all: true, mode: "live" as const };
+      void _revision;
+      onView(view);
+    });
   const revision = () => `${current.current.viewer.revision}:${localRevision.current}`;
   const choose = (value: typeof selection) => {
     if (sideTab === "results" && resultList.current) resultScroll.current = resultList.current.scrollTop;
@@ -82,12 +107,13 @@ export function HistoryChat({ csrf, onExpired, viewer, onView, cameras, children
     onView({ sector, ...(sector === PRIMARY_SECTOR ? { all: true, mode: "live" as const } : {}) });
   };
   const selectPortal = (screen: PortalScreen) => {
-    setPortalScreen(screen); choose(null);
+    setDashboard(previous => ({ ...previous, screen })); choose(null);
     localRevision.current++; current.current.result = null; setResult(null); setAnswerReady(false); setError("");
     onView({ sector: null });
     content.current?.scrollTo({ top: 0 });
   };
   const showResult = (value: ToolResult) => {
+    setResultRevision(previous => previous + 1);
     localRevision.current++; current.current.result = value; setResult(value); choose(null);
     onView(typeof value.filters?.camera === "string" ? { camera: value.filters.camera, all: false } : { sector: PRIMARY_SECTOR });
   };
@@ -301,13 +327,16 @@ export function HistoryChat({ csrf, onExpired, viewer, onView, cameras, children
     finally { sending.current = false; if (mounted.current) { setBusy(false); setPhase(""); } }
   };
   const compare = async (uid: string) => {
+    const expected = revision();
     setPaging(true); setError("");
     try {
       const response = await fetch(`/edge/api/history/similar?uid=${encodeURIComponent(uid)}`, { cache: "no-store" });
       if (response.status === 401) { onExpired(); return; }
       if (!response.ok) throw new Error("No se pudieron comparar las vistas.");
-      showResult(await response.json());
-    } catch (reason) { setError((reason as Error).message); } finally { setPaging(false); }
+      const value: ToolResult = await response.json();
+      if (revision() !== expected) return;
+      showResult(value);
+    } catch (reason) { if (revision() === expected) setError((reason as Error).message); } finally { setPaging(false); }
   };
   const loadPortal = async (path: string) => {
     if (sending.current) return;
@@ -367,7 +396,7 @@ export function HistoryChat({ csrf, onExpired, viewer, onView, cameras, children
       <span aria-hidden="true" className="text-text-faint">/</span><span className="text-text">{sectorTitle}</span>
       {inCameraSector && <div className="ml-auto flex items-center gap-3"><button type="button" aria-expanded={mapExpanded} aria-controls={`${tabId}-map`} onClick={() => setMapExpanded(value => !value)} className="cursor-pointer py-1 text-[11px] text-text-muted hover:text-accent">{mapExpanded ? "Ocultar" : "Mostrar"} mapa y actividad <span aria-hidden="true">{mapExpanded ? "▴" : "▾"}</span></button></div>}
     </nav>}
-    <div hidden={viewer.sector !== null} className={viewer.sector === null ? "ed-portal-container" : "hidden"}><EdgeDashboard screen={portalScreen} onScreen={selectPortal} cameras={cameras} onExpired={onExpired} onSearch={searchCatalog} onOpen={openDashboardItem} onCamera={() => { choose(null); localRevision.current++; current.current.result = null; setResult(null); setAnswerReady(false); onView({ sector: PRIMARY_SECTOR, all: true, mode: "live" }); }} onArchive={(camera, at) => void loadPortal(`recording?${new URLSearchParams({ camera, at: String(at) })}`)} busy={busy} /></div>
+    <div hidden={viewer.sector !== null} className={viewer.sector === null ? "ed-portal-container" : "hidden"}><EdgeDashboard navigation={dashboard} onNavigation={setDashboard} onScreen={selectPortal} cameras={cameras} onExpired={onExpired} onSearch={searchCatalog} onOpen={openDashboardItem} onCamera={() => { choose(null); localRevision.current++; current.current.result = null; setResult(null); setAnswerReady(false); onView({ sector: PRIMARY_SECTOR, all: true, mode: "live" }); }} onArchive={(camera, at) => void loadPortal(`recording?${new URLSearchParams({ camera, at: String(at) })}`)} busy={busy} /></div>
     {viewer.sector !== null && (!inCameraSector ? <EmptySector sector={viewer.sector} onSelect={selectSector} /> : <>
     <div id={`${tabId}-map`} hidden={!mapExpanded} aria-label="Mapa y tráfico del corredor" className={mapExpanded ? "mb-3 flex h-[clamp(100px,15dvh,128px)] shrink-0 snap-x snap-mandatory gap-3 overflow-x-auto px-3 sm:grid sm:h-[clamp(112px,21dvh,220px)] sm:grid-cols-[minmax(0,1fr)_minmax(240px,32%)] sm:overflow-visible sm:px-5 lg:grid-cols-[minmax(0,1fr)_340px]" : "hidden"}>
       <div className="h-full min-h-0 min-w-0 basis-[88%] shrink-0 snap-start" aria-label="Mapa del corredor"><CameraMap cams={mapCameras} sel={Math.max(0, cameras.findIndex(camera => camera.key === viewer.camera))} onPick={index => { choose(null); onView({ camera: cameras[index].key, all: false }); }} admin={false} api="" token="" loadSavedLayout={false} compact /></div>

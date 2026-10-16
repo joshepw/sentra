@@ -76,6 +76,13 @@ tras autenticar. Un fallo conserva un estado de error/reintento sin inventar
 contadores. Las cámaras se montan al entrar al visor. Texto/voz, resultados,
 ficha, reproducción y sesiones mantienen sus contratos existentes.
 
+Atrás y Adelante del navegador recorren las pantallas, búsquedas, fichas,
+territorios y vistas de cámara. Los filtros y resultados se recuperan de la
+memoria de la sesión; el historial del navegador guarda solo nombres de vistas.
+Los controles de mapa y las actualizaciones automáticas no agregan pasos.
+Una recarga o nueva sesión vuelve a Inicio; las entradas antiguas pueden volver
+a su sección sin recuperar evidencia privada de la sesión anterior.
+
 Requiere el backend con `GET /edge/api/history/dashboard` (resumen acumulado,
 caché privada de 60 s) y `GET /edge/api/history/catalog` (paginación acumulada,
 filtros cerrados). Estas rutas no cambian las ventanas de 31 días de las
