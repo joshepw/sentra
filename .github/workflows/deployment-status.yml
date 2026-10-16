@@ -1,0 +1,44 @@
+name: Vercel deployment diagnostics
+
+on:
+  repository_dispatch:
+    types:
+      - vercel.deployment.error
+      - vercel.deployment.failed
+      - vercel.deployment.success
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  deployment-status:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Report deployment metadata supplied by the Vercel integration
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          event = json.loads(Path(os.environ['GITHUB_EVENT_PATH']).read_text())
+          payload = event.get('client_payload', {})
+          state = payload.get('state', {})
+          # Deliberately select deployment metadata; never dump the event,
+          # environment variables, credentials, or application build output.
+          result = {
+              'event': event.get('action', 'manual-check'),
+              'deployment': payload.get('id'),
+              'project': payload.get('project', {}).get('name'),
+              'environment': payload.get('environment'),
+              'commit': payload.get('git', {}).get('sha'),
+              'status': state.get('type'),
+              'reason': state.get('detail'),
+          }
+          report = json.dumps(result, indent=2)
+          print(report)
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as summary:
+              summary.write('```json\n' + report + '\n```\n')
+          PY
