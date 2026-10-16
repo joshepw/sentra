@@ -268,6 +268,39 @@ function History({ camera, onExpired, showBoxes }: { camera: Camera; onExpired: 
   </section>;
 }
 
+function LoginLink() {
+  const [phase, setPhase] = useState<"idle" | "opening" | "slow">("idle");
+  const pending = useRef(false);
+  const opening = phase === "opening";
+  useEffect(() => {
+    const restore = (event: PageTransitionEvent) => {
+      if (event.persisted) { pending.current = false; setPhase("idle"); }
+    };
+    window.addEventListener("pageshow", restore);
+    return () => window.removeEventListener("pageshow", restore);
+  }, []);
+  useEffect(() => {
+    if (!opening) return;
+    // A cancelled or stalled document navigation must leave a usable retry.
+    const timer = setTimeout(() => { pending.current = false; setPhase("slow"); }, 15000);
+    return () => clearTimeout(timer);
+  }, [opening]);
+  return <>
+    <a href="/edge/auth/login?next=%2Fedge%2Flive" aria-busy={opening} aria-disabled={opening || undefined}
+      onClick={event => {
+        // Keep native new-tab/window behavior and the existing OIDC redirect.
+        if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+        if (pending.current) { event.preventDefault(); return; }
+        pending.current = true; setPhase("opening");
+      }}
+      className={`${button} inline-flex min-h-11 items-center justify-center gap-2 border-accent text-accent aria-disabled:cursor-wait`}>
+      {opening && <span aria-hidden="true" className="size-4 animate-spin rounded-full border-2 border-current border-r-transparent motion-reduce:animate-none" />}
+      {opening ? "Abriendo Zitadel…" : phase === "slow" ? "Volver a intentar" : "Entrar con Zitadel"}
+    </a>
+    <p role="status" className="mt-3 min-h-5 text-xs text-text-faint">{opening ? "Estamos abriendo el inicio de sesión." : phase === "slow" ? "Está tardando más de lo habitual. Podés volver a intentar." : ""}</p>
+  </>;
+}
+
 export function EdgeLiveViewer() {
   const [state, setState] = useState<LiveState | null>(null);
   const [denied, setDenied] = useState(false);
@@ -314,7 +347,7 @@ export function EdgeLiveViewer() {
     <div className="mb-6 flex items-center gap-3"><SentraLogoMark size={28} /><SentraWordmark /></div>
     <h1 className="mb-3 text-xl text-text">Video en vivo e historial</h1>
     <p className="mb-6 text-sm text-text-faint">Entrá con tu cuenta de Senttra para ver las cámaras.</p>
-    <a href="/edge/auth/login?next=%2Fedge%2Flive" className={`${button} inline-block border-accent text-accent`}>Entrar con Zitadel</a>
+    <LoginLink />
   </div></main>;
   const camera = cameras?.[selected];
   return <main className="fixed inset-0 flex h-dvh min-h-0 flex-col overflow-hidden bg-bg-page text-text">
