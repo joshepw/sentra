@@ -1,4 +1,5 @@
 # Senttra Edge: offline map geometry
+
 Geographic snapshot prepared on 2026-10-15. These are simplified geographic assets, not camera, traffic, or incident data. No runtime services, API keys, new application dependencies, or tile downloads are needed.
 
 ## Deliverables

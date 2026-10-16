@@ -2,10 +2,11 @@ import { createRequire } from 'node:module';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import assert from 'node:assert/strict';
 
-const { chromium } = createRequire(import.meta.url)(process.env.PLAYWRIGHT_MODULE ?? '/home/paal/tmp-codex-test/worktrees/wheel-dev-guide/node_modules/playwright');
+const { chromium } = createRequire(import.meta.url)(process.env.PLAYWRIGHT_MODULE ?? 'playwright');
 const origin = process.env.EDGE_TEST_ORIGIN ?? 'http://127.0.0.1:8269';
 const output = process.env.EDGE_EVIDENCE_DIR ?? 'test-artifacts/dashboard';
-const video = await readFile(process.env.EDGE_TEST_VIDEO ?? '/home/paal/tmp-codex-test/senttra-dashboard-fixture.mp4');
+assert(process.env.EDGE_TEST_VIDEO, 'Supply a synthetic 60-second MP4 through EDGE_TEST_VIDEO');
+const video = await readFile(process.env.EDGE_TEST_VIDEO);
 await mkdir(output, { recursive: true });
 const at = Date.parse('2026-09-30T07:04:00-06:00') / 1000;
 const cameras = [['crowne1', 'Crowne Plaza 1'], ['seguros', 'Seguros Atlántida'], ['seguros1', 'Seguros Atlántida 1'], ['seguros2', 'Seguros Atlántida 2'], ['little', 'Little Caesars'], ['little1', 'Little Caesars 1'], ['axis9', '9 Avenida']].map(([key, title]) => ({ key, title, receiving: true, url: `/edge/media/live/${key}/index.m3u8`, preview_url: `/edge/media/live/${key}/preview/index.m3u8` }));
@@ -20,7 +21,7 @@ const summary = {
   featured: makeItem('incidente'), events: [makeItem('uturn'), makeItem('rojo'), makeItem('incidente'), makeItem('uturn', 2)],
 };
 const evidence = { checks: [], errors: [], catalogs: [], recordings: [], receipts: [], media: [] };
-const browser = await chromium.launch({ headless: true, executablePath: '/opt/google/chrome/chrome', args: ['--autoplay-policy=no-user-gesture-required'] });
+const browser = await chromium.launch({ headless: true, executablePath: process.env.CHROMIUM_PATH ?? '/opt/google/chrome/chrome', args: ['--autoplay-policy=no-user-gesture-required'] });
 try {
   for (const viewport of [{ width: 1440, height: 1000 }, { width: 393, height: 852 }]) {
     const context = await browser.newContext({ viewport, isMobile: viewport.width < 700, hasTouch: viewport.width < 700, serviceWorkers: 'block', reducedMotion: 'reduce' });
